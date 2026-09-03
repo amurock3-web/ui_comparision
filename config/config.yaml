@@ -1,0 +1,14 @@
+# Thresholds and model settings (design.md §13, rules.md §15).
+# Values below are the design-doc starting points — not yet experimentally
+# calibrated; expect to tune these once real comparisons are run.
+
+ocr:
+  confidence_warning: 0.60
+  confidence_accept: 0.85
+
+matching:
+  minimum_match_score: 0.70
+
+vlm:
+  model: qwen2.5vl:7b
+  prompt_version: v1_qwen2.5vl

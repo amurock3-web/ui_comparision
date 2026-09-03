@@ -1,0 +1,21 @@
+{
+  "version": "v2-16class-2026-09-02",
+  "classes": [
+    "content_card",
+    "tab_item",
+    "overlay_badge",
+    "section_title",
+    "button",
+    "cast_card",
+    "icon",
+    "metadata_text",
+    "navigation_bar",
+    "celebrity_card",
+    "title",
+    "description",
+    "search_bar",
+    "rank_number",
+    "text_input",
+    "logo"
+  ]
+}
