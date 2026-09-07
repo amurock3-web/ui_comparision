@@ -1,6 +1,10 @@
 Environment Spec — UI Comparison (GPU / Linux / Docker)
 
-Replaces: the "Hardware" section in memory.md and rules.md §13 (old CPU-only Windows spec is now obsolete).
+This is the setup spec for the GPU-accelerated Docker/Linux environment (`ui_compare_v2`),
+used for OCR/VLM benchmarking. It documents that environment only — it does not assert this
+environment is the one currently checked out. Check `memory.md` for which environment is
+actually active before relying on the GPU numbers below; the Windows/local checkout is not
+obsolete, it is a separate, still-used environment.
 
 1. Platform
 
@@ -52,13 +56,14 @@ bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &
 ollama pull qwen3-vl:4b
-6. Model choice — confirmed
+6. Model choice — superseded, see memory.md
 
-qwen3-vl:4b remains the right call:
-
-Fits well within 8GB VRAM at typical quantization
-GPU inference should be a large speedup over the CPU run on the old Windows laptop
-No need to downgrade to a smaller VLM unless benchmarking on this GPU still shows unacceptable latency
+qwen3-vl:4b was the model this environment was originally set up for, but it was rejected after
+benchmarking (Phase 2, both here and on the Windows checkout): its thinking mode can't be
+disabled and exhausts the token budget on screens with many repeated elements (movie card grids).
+The current model is qwen2.5vl:7b — larger, but still fits comfortably in 8GB VRAM at typical
+quantization on this GTX 1070. See `memory.md`'s VLM benchmarking history for the full record;
+that file is the source of truth for current model choice, not this one.
 7. Recommended: Dockerfile instead of ad-hoc installs
 
 To avoid losing setup work if the container is removed, capture everything in a Dockerfile rather than installing by hand each time:

@@ -1,5 +1,10 @@
 # UI Comparison Project — Progress Summary (as of 2026-09-03)
 
+> **Superseded.** This is a dated point-in-time snapshot, kept for history. For current phase
+> status, environment, and next task, read `memory.md` instead — this file is not maintained,
+> and within a day of being written was already stale (Fusion, Graph, Comparison, and Reporting
+> have since been built).
+
 ## 1. Project Overview
 
 **Name:** UI Comparison (local AI-assisted Production UI vs Client UI comparison)

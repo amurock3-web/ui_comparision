@@ -20,11 +20,14 @@ The VLM must be locally hosted.
 Current setup:
 
 text
-Ollama (installed via ollama.com/install.sh inside the GPU container;
-        started manually with `ollama serve &`, no systemd)
-qwen3-vl:4b
+Ollama 0.33.3
+qwen2.5vl:7b (classify-only calls + a separate content_card-grounding call)
 
-The model may change after further benchmarking on the GPU. The application must use a replaceable VLM interface.
+qwen3-vl:4b was the original candidate; rejected after benchmarking (thinking mode can't be
+disabled, exhausts the token budget on screens with many repeated elements). See `memory.md`'s
+VLM benchmarking history for the full record. The application must use a replaceable VLM
+interface (`VLMEngine` in `src/vlm/engine.py`) — the model may change again after further
+benchmarking.
 
 4. OCR
 
@@ -51,6 +54,9 @@ Never replace one with the other.
 Use NetworkX for the POC. Do not introduce Neo4j unless demonstrated necessary.
 
 Initial edges: CONTAINS, CHILD_OF, BELONGS_TO, ABOVE, BELOW, LEFT_OF, RIGHT_OF, ALIGNED_WITH, OVERLAPS, ORDERED_BEFORE.
+As implemented in `src/graph/build.py`: CONTAINS, ABOVE, BELOW, LEFT_OF, RIGHT_OF, ALIGNED_WITH,
+OVERLAPS, ORDERED_BEFORE. CHILD_OF is not a separate materialized edge — it's derivable via
+`graph.reverse()` on CONTAINS; BELONGS_TO was not needed once CONTAINS covered parent/child.
 
 7. Comparison
 
@@ -84,53 +90,30 @@ Do not initially: - clean all old annotations - process all 103 screens - train 
 
 13. Hardware
 
-Current (migrated from Windows laptop to GPU Linux sandbox):
+Two environments are documented for this project and are not interchangeable — see
+`environment.md` for the full Docker/Linux/GPU spec and `memory.md` for which one is actually
+checked out and being worked in right now. Do not assume the GPU container is current without
+checking; do not assume Windows/CPU is current without checking either.
 
-text
-Platform : Docker container (nvidia/cuda:12.6.3-base-ubuntu22.04)
-Container: ui_compare_v2 (volume-mounted at /workspace,
-           backed by ~/ui_comparison_workspace on the host)
-GPU      : NVIDIA GeForce GTX 1070 (Pascal, compute capability 6.1)
-VRAM     : 8 GB
-Driver   : 580.173.02
-CUDA (container toolkit): 12.6.3
-
-GPU access has been obtained (previously "may become available"). Rebenchmark VLM latency now that GPU is available, per the original rule below.
-
-Full details: see environment.md.
-
-Superseded (previous Windows laptop spec, kept for history):
-
-text
-Intel Core i5-1335U
-10 cores / 12 threads
-~34 GB RAM
-Intel Iris Xe
-No NVIDIA CUDA
-
-Rebenchmark before changing model (still applies going forward).
+Rebenchmark model latency before changing the VLM model — do not carry a benchmark number from
+one environment over to a claim about the other.
 
 14. Development
 
-Build vertically: one screenshot → OCR → VLM → JSON → Graph → comparison → report Then scale to pairs and batch.
+Build vertically: one screenshot → OCR → VLM → JSON → Graph → comparison → report. Then scale to pairs and batch.
 
 15. Reproducibility
 
 Record model, model tag/version, OCR config, VLM prompt version, image resolution, inference time and comparison thresholds.
 
 16. Current state
-Environment (Windows, CPU): DONE (superseded)
-Environment (GPU Linux/Docker, ui_compare_v2): DONE
-Ollama: DONE (reinstalled on GPU container)
-qwen3-vl:4b: DOWNLOADED (Windows); re-pull on GPU container in progress
-PaddlePaddle: DONE (CPU on Windows); GPU build (cu126) in progress on new container
-PaddleOCR: INSTALLED (both environments)
-SS012 OCR test: DONE (Windows/CPU, 39 detections, ~41-59s)
-OCR JSON/visualization: DONE, includes center/normalized_bbox/ confidence_tier
-OCR engine refactor (src/ocr/engine.py, visualize.py): DONE
-SS012 OCR test on GPU: NOT YET RUN
-VLM benchmark: PAUSED on Windows (CPU too slow); to resume on GPU
-Fusion/graph/comparison/report: NOT STARTED
-17. Container discipline (new)
 
-Only work inside ui_compare_v2 (the volume-mounted container). The original ui_compare container was created without a volume mount, was confirmed empty, and should not be used further — anything installed in a container without a volume mount to the host is lost if that container is removed.
+See `memory.md` — it is the single source of truth for phase status, environment, and the next
+task. Do not duplicate that table here; a second copy is how this section went stale before.
+
+17. Container discipline
+
+If working in the Docker/GPU environment: only work inside `ui_compare_v2` (the volume-mounted
+container). An earlier `ui_compare` container had no volume mount, was confirmed empty, and
+should not be used — anything installed in a container without a host volume mount is lost if
+that container is removed.

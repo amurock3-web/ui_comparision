@@ -43,7 +43,15 @@ Responsibilities: - text detection - text recognition - bbox/polygon - confidenc
 
 5. VLM engine
 
-Runtime: Ollama 0.32.14 Current model: qwen3-vl:4b
+Runtime: Ollama 0.33.3. Current model: qwen2.5vl:7b (qwen3-vl:4b was tried first and rejected —
+its thinking mode can't be disabled and exhausts the token budget on screens with many repeated
+elements; see `memory.md`'s VLM benchmarking history).
+
+Two separate calls, not one: `VLMEngine.analyze()` (classify-only — class/text/description/
+approximate_location, no bbox) is the default path; `VLMEngine.ground_content_cards_experimental()`
+(Qwen2.5-VL's native `bbox_2d` grounding, content_card only) supplies real geometry for cards.
+Splitting classification from grounding into two calls was found to work better than one combined
+prompt (combining them missed cards).
 
 Responsibilities: - UI semantic classification - visual component recognition - contextual interpretation - relationships - difficult visual content
 
@@ -56,7 +64,13 @@ rather than calling Ollama everywhere.
 
 6. Fusion
 
-Combines OCR and VLM using bbox overlap, center distance, text similarity and spatial proximity.
+Combines OCR and VLM. For most classes: SoM-style id match (VLM's own `ocr_ref_id`) first, then
+text similarity, then a position-zone-only fallback — applied uniformly to every VLM
+classification, not a restricted subset. content_card geometry comes exclusively from the VLM
+grounding call (no fallback); overlay_badge from deterministic OCR keyword+containment. Unmatched
+OCR text whose center falls inside a content_card gets `parent_id` set to that card instead of
+staying a floating top-level element. Anything still unmatched after all of the above is tagged
+`metadata.match_status = "uncertain"` rather than left ambiguous.
 
 Keep raw OCR/VLM evidence; do not destroy it.
 
@@ -137,8 +151,8 @@ Python 3.11
 PaddlePaddle 3.2.0
 PaddleOCR
 Pillow
-Ollama 0.32.14
-Qwen3-VL 4B
+Ollama 0.33.3
+Qwen2.5-VL 7B
 NetworkX
 Pydantic
 python-dotenv
@@ -147,12 +161,27 @@ standard Python libraries
 text
 src/
 ├── ocr/
+│   ├── engine.py
+│   └── visualize.py
 ├── vlm/
+│   ├── engine.py
+│   ├── prompts.py
+│   └── visualize.py
 ├── fusion/
+│   ├── fuse.py
+│   └── visualize.py
 ├── schema/
 ├── graph/
+│   ├── build.py
+│   └── visualize.py
 ├── comparison/
+│   ├── matcher.py
+│   └── differ.py
 ├── reporting/
 └── main.py
+
+Each pipeline stage that has real geometry to draw also has a `visualize.py`, following the same
+convention: colour-code by confidence tier, thick outline + labeled box for classified/grounded
+elements, thin unlabeled box for unclassified evidence kept per rules.md §10.
 
 Create modules incrementally; do not overbuild before the end-to-end POC works.

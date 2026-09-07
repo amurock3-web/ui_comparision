@@ -22,7 +22,13 @@ Keep low-confidence OCR observations as evidence rather than deleting them immed
 
 3. VLM design
 
-The VLM receives the screenshot and useful OCR observations, plus the allowed taxonomy and strict schema.
+The VLM receives the screenshot and useful OCR observations, plus the allowed taxonomy. Two
+separate, versioned prompts, not one: `v2_qwen2.5vl_classify_only` (class/text/description/
+approximate_location, no bbox — the default path) and `v3_qwen2.5vl_ground_content_cards`
+(content_card-only geometry, via Qwen2.5-VL's native `bbox_2d` grounding format). Free-form
+generation (`use_json_schema: false`), not schema-constrained decoding — schema-constrained
+decoding was found to bias a nullable `text` field toward its null branch even for elements OCR
+read at high confidence (arXiv:2408.02442).
 
 Prompt rules: - do not invent elements - identify repeated elements independently - use approved classes - preserve visible text when reliable - distinguish UI components from artwork - output structured data
 
@@ -30,9 +36,30 @@ The prompt should be versioned.
 
 4. Fusion design
 
-Associate OCR and VLM observations using: 1. bbox overlap 2. center distance 3. text similarity 4. spatial proximity
+Real geometry comes from OCR wherever possible — the VLM's own per-element bbox output was found
+non-deterministic across repeated calls, disqualifying it for a tool whose job is detecting real
+differences between two runs (see `fuse.py` module docstring). Associate OCR and VLM observations
+using, in this order: 1. Set-of-Marks id match (VLM's own `ocr_ref_id`, when given) 2. text
+similarity 3. position-zone-only fallback (no text comparison) — applied to every VLM
+classification uniformly, not restricted to a "text-matchable" subset (that restriction was found
+to leave classes like icon/navigation_bar with no matching attempt at all, e.g. an icon labeled
+"Search" never grabbing OCR's own "Search" text).
 
-Example: OCR "Free" + VLM class badge + overlapping bbox → fused badge element
+content_card is the one exception: its geometry comes exclusively from a dedicated VLM grounding
+call (`ground_content_cards_experimental()`), not OCR association — content_cards have no reliable
+OCR-matchable text of their own. That grounding call's own output is near-deterministic within a
+tight back-to-back sequence at `temperature: 0`, but showed ~4% normalized position drift across a
+longer session-to-session gap — wider than OCR-derived geometry, so grounded elements carry
+`metadata.bbox_source = "vlm_grounded"` for the comparison stage to apply a looser position
+tolerance than OCR-exact geometry gets.
+
+Example: OCR "Free" + badge keyword match + center inside a content_card's bbox → promoted to
+`overlay_badge` using OCR's exact bbox (deterministic keyword+containment, no VLM involved).
+
+Unmatched OCR text whose center falls inside a content_card's bbox gets `parent_id` set to that
+card instead of staying a floating top-level element (e.g. a poster's title/subtitle text).
+Anything still unmatched after every fallback is tagged `metadata.match_status = "uncertain"`
+rather than left ambiguous or silently dropped.
 
 Preserve raw sources.
 
@@ -149,7 +176,9 @@ Record: - model - image - resolution - runtime - element count - confidence - ma
 
 16. POC technology set
 
-Python + PaddleOCR + Ollama/Qwen3-VL + Pydantic + NetworkX + Pillow is sufficient. No database or large frontend is required.
+Python + PaddleOCR + Ollama/Qwen2.5-VL 7B + Pydantic + NetworkX + Pillow is sufficient. No
+database or large frontend is required. (Qwen3-VL 4B was the original candidate; rejected —
+see `memory.md`'s VLM benchmarking history.)
 
 17. Future hybrid system
 
