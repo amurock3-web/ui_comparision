@@ -104,6 +104,8 @@ class OCREngine:
         W, H = image.width, image.height
         screen_id = screen_id or image_path.stem
 
+        print(f"[OCR] Starting OCR on {image_path.name} ({W}x{H})... please wait, this can take a while on CPU.")
+
         start = time.time()
         raw_result = self._ocr.predict(str(image_path))
         elapsed = time.time() - start
@@ -155,6 +157,8 @@ class OCREngine:
                         confidence_tier=confidence_tier(confidence),
                     )
                 )
+
+        print(f"[OCR] Done in {elapsed:.2f}s - {len(elements)} elements found.")
 
         return OCRResult(
             screen=screen_id,

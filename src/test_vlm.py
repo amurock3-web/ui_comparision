@@ -1,3 +1,9 @@
+# SUPERSEDED: this ad-hoc script uses the rejected qwen3-vl:4b model
+# (thinking mode can't be disabled, exhausts the token budget on screens
+# with repeated elements) and the old 22-class taxonomy (superseded by
+# config/classes.json's 16-class taxonomy). Use src/vlm/engine.py +
+# scripts/run_vlm_test.py instead. Kept for historical reference only.
+
 import json
 import time
 from pathlib import Path

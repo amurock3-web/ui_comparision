@@ -8,7 +8,59 @@ ocr:
 
 matching:
   minimum_match_score: 0.70
+  weights:
+    class: 0.25
+    text: 0.25
+    spatial: 0.2
+    iou: 0.2
+    context: 0.1
+
+comparison:
+  text_similarity_threshold: 0.85
+  position_threshold_norm: 0.02
+  size_ratio_threshold: 0.15
+  structural_similarity_threshold: 0.5
 
 vlm:
   model: qwen2.5vl:7b
-  prompt_version: v1_qwen2.5vl
+  # v2 is classify-only (class/text/description/approximate_location, no
+  # bbox) — VLM-grounded bboxes were found non-deterministic across
+  # repeated calls (see src/fusion/fuse.py docstring). v1_qwen2.5vl still
+  # exists for VLMEngine.analyze_grounded_experimental() only.
+  prompt_version: v2_qwen2.5vl_classify_only
+  # null = send native resolution, no downscale before the VLM. Previously
+  # 1280, because full 2400px height produced ~3661 vision tokens and hit
+  # cudaMalloc failed: out of memory on an 8GB GTX 1070 with this 7B model.
+  # Set back to a pixel value (e.g. 1280) if you hit that OOM again.
+  max_image_dim: null
+  # 2048 truncated a real ~40-element screen mid-list (done_reason="length");
+  # 4096 gives real screens enough room, at the cost of a longer CPU run.
+  num_predict: 4096
+  num_ctx: 8192
+  # A real pipeline run found "text" coming back null for EVERY element,
+  # including ones OCR read at high confidence in the same run. Research
+  # (arXiv:2408.02442, "Let Me Speak Freely?") documents schema/grammar-
+  # constrained decoding biasing a nullable field toward its null branch
+  # even when the model could report a real value. use_json_schema: false
+  # sidesteps that mechanism entirely (free-form generation + robust
+  # parsing, same approach the earlier reference VLM interface used).
+  use_json_schema: false
+  # Only consulted when use_json_schema: true — drops null from the
+  # schema's "text" type (paired prompt change: says "" instead of null)
+  # as a lighter-weight alternative mitigation.
+  nullable_text_in_schema: true
+
+fusion:
+  # Text-based OCR<->VLM matching (section_title, tab_item, logo, title, ...)
+  text_similarity_threshold: 0.6
+  # Badge keywords deliberately narrow — expand only with evidence from
+  # real screenshots, a broad list risks false-positive badge detection.
+  badge_keywords: [free, new]
+  # Card boxes are grid-inferred (approximate row bounds), so a badge near
+  # a card's edge needs generous tolerance to register as "inside" it.
+  badge_containment_padding: 40
+
+graph:
+  containment_min_overlap: 0.9
+  alignment_epsilon_norm: 0.01
+  adjacency_max_gap_norm: 0.05
