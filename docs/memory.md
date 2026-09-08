@@ -58,10 +58,10 @@ assume the Docker container from the benchmark numbers below is the one currentl
 | 2 — VLM | `src/vlm/engine.py` + `prompts.py` + `visualize.py`; classify + content_card grounding, both working | ✅ Done |
 | 3 — Fusion | `src/fusion/fuse.py` + `visualize.py` | ✅ Done, substantially reworked 2026-09-07 — see below |
 | 4 — UI Graph | `src/graph/build.py` + `visualize.py` (new 2026-09-07) | ✅ Done |
-| 5 — Matching | `src/comparison/matcher.py` | ✅ Built + tested, **not wired into `main.py`** |
-| 6 — Difference engine | `src/comparison/differ.py` | ✅ Built + tested, **not wired into `main.py`**; position/size tolerance doesn't yet distinguish `bbox_source="vlm_grounded"` from `"ocr_exact"` — designed 2026-09-07, not implemented |
-| 7 — Reporting | `src/reporting/report.py` | ✅ Built + tested, **not wired into `main.py`** |
-| 8 — End-to-end POC | Production → OCR → VLM(classify+ground) → Fusion → Graph. `main.py`/3 scripts updated 2026-09-07 to call grounding before fusion (now required) — fixed but not run end-to-end by an assistant this session; one user-run of `run_fusion_test.py` succeeded | 🔄 Blocked on missing client screenshot AND `tests/test_fusion.py`'s 14 call sites (still pass no `grounded_cards`, will fail) |
+| 5 — Matching | `src/comparison/matcher.py` | ✅ Built + tested, wired into `main.py` |
+| 6 — Difference engine | `src/comparison/differ.py` | ✅ Built + tested, wired into `main.py`; position/size tolerance doesn't yet distinguish `bbox_source="vlm_grounded"` from `"ocr_exact"` — designed 2026-09-07, not implemented (see open findings below) |
+| 7 — Reporting | `src/reporting/report.py` + `visualize.py` | ✅ Built 2026-09-07 (was previously just a docstring stub — earlier "built + tested" claim in this file was wrong, corrected here). `ReportGenerator` (counts + similarity % + findings) and `draw_comparison_result` (side-by-side production/client with differences highlighted). No unit tests yet (`tests/test_reporting.py` is still a placeholder). |
+| 8 — End-to-end POC | `src/main.py` now takes `--production-image`/`--client-image` (CLI changed from single-image to a real pair) and runs the full chain: OCR → VLM(classify+ground) → Fusion → Graph → Matcher → DifferenceEngine → Report → visualization | ✅ **Ran successfully end-to-end 2026-09-07** against `input/production/ss012.png` and a synthetic client image (WALTER poster card blanked out) — 68.3% similarity, correctly caught the removed card/title as `MISSING_IN_CLIENT`. See "POC first run" below for real findings and open issues it surfaced. |
 | 9 — Batch (103 screens) | Not started — out of POC scope, see `rules.md` §12 | Future |
 | 10 — Detector | Not started — only after pipeline is proven | Future |
 | 11 — Productionization | Not started | Future |
@@ -196,19 +196,41 @@ JSON in `output/{ocr,vlm}/` instead of re-running the full (15-20 minute) pipeli
 under a second. No permanent script for this exists yet — done ad hoc in a scratchpad script so
 far.
 
+## POC first run — 2026-09-07
+
+First real end-to-end run: `python -m src.main --production-image input/production/ss012.png
+--production-screen-id ss012 --client-image input/client/ss012.png --client-screen-id ss012`.
+Client image is synthetic (`input/client/ss012.png` — a copy of the production screenshot with
+the WALTER poster card painted over, to get a known, deliberate difference to test against; not a
+real client screenshot yet). Result: 68.3% similarity, 60 elements compared (41 MATCH, 6
+MISSING_IN_CLIENT, 5 EXTRA_IN_CLIENT, 4 SIZE_DIFFERENCE, 3 TEXT_DIFFERENCE, 1 CLASS_DIFFERENCE).
+The actual planted change (WALTER card removed) was correctly caught as `MISSING_IN_CLIENT`.
+
+**Real noise found, not yet addressed:** several nav-bar items ("Movies", "Live TV", "Free") that
+are genuinely unchanged between the two runs still showed up as a false MISSING_IN_CLIENT +
+EXTRA_IN_CLIENT pair instead of a MATCH — because the classify-only VLM call labeled them
+`navigation_bar` on the production run and `tab_item` on the client run (same screen, same
+elements, two separate VLM calls, different classification). `matcher.py`'s class score treats a
+class mismatch harshly enough that an otherwise-identical pair doesn't match. This is a real
+source of false positives for this comparison tool specifically — two runs of the *same* screen
+can already disagree on classification — not something invented for this test; worth deciding how
+to handle (e.g. loosen the class score for known-similar classes, or improve prompt consistency).
+
 ## Next immediate task
 
 In priority order, all still open as of 2026-09-07:
 1. **Commit today's (and the pre-existing) uncommitted work** — see "Uncommitted work" note above.
-   Overdue, keeps getting deferred.
-2. **Fix `tests/test_fusion.py`'s 14 broken call sites** (`grounded_cards` now required).
-3. Get a client screenshot into `input/client/`, then wire `matcher.py` → `differ.py` →
-   `report.py` into `main.py` after the existing Fusion/Graph step, mirroring how OCR → VLM →
-   Fusion → Graph is already wired. The comparison and reporting code itself does not need to be
-   written — it needs an input and a call site.
-4. Decide on the zone-tie-break bug (Fusion rework section above) — fix or leave.
-5. Implement the `differ.py` position-tolerance split for `bbox_source="vlm_grounded"` vs
+   Overdue, keeps getting deferred. (Note: `report.py`/`visualize.py`/`main.py` changes from the
+   POC-completion push above are also uncommitted.)
+2. **Decide how to handle VLM classification inconsistency between separate calls** — see "POC
+   first run" above. Real false-positive source, not hypothetical.
+3. **Fix `tests/test_fusion.py`'s 14 broken call sites** (`grounded_cards` now required).
+4. Get a **real** client screenshot (the current one is synthetic/self-modified) into
+   `input/client/`.
+5. Decide on the zone-tie-break bug (Fusion rework section above) — fix or leave.
+6. Implement the `differ.py` position-tolerance split for `bbox_source="vlm_grounded"` vs
    `"ocr_exact"` (designed 2026-09-07, see VLM benchmarking history above).
+7. Write tests for `report.py`/`visualize.py` (`tests/test_reporting.py` is still a placeholder).
 
 ## Continuation instructions (for any AI assistant picking this up)
 
