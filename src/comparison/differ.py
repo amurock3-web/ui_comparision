@@ -121,7 +121,10 @@ class DifferenceEngine:
 
     @staticmethod
     def _is_dynamic(el, by_id) -> bool:
-        """§H ignore list: anything inside a content_card is live data."""
+        """§H ignore list: anything inside a content_card is live data, and
+        anything fusion tagged ignored (the status bar)."""
+        if el.metadata.get("ignored"):
+            return True
         parent = by_id.get(el.parent_id) if el.parent_id else None
         return parent is not None and parent.class_ == "content_card"
 

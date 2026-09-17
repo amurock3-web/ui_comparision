@@ -129,6 +129,15 @@ def test_missing_and_extra_reported():
     assert "EXTRA_IN_PRODUCTION" in types
 
 
+def test_status_bar_text_is_ignored():
+    clock = _el("c1", "button", [900, 5, 60, 20], "3:58").model_copy(
+        update={"class_": None, "source": "ocr", "metadata": {"ignored": "status_bar"}})
+    differences = DifferenceEngine().compare(_doc([]), _doc([clock], source="client"))
+
+    assert _types(differences) == ["MISSING_IN_PRODUCTION"]
+    assert differences[0].verdict == "PASS"
+
+
 def test_class_difference_flagged_for_matched_pair():
     prod = _doc([_el("p1", "button", [10, 10, 100, 40], "Submit")])
     client = _doc([_el("c1", "icon", [10, 10, 100, 40], "Submit")], source="client")

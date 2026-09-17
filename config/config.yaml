@@ -71,6 +71,11 @@ fusion:
   # Card boxes are grid-inferred (approximate row bounds), so a badge near
   # a card's edge needs generous tolerance to register as "inside" it.
   badge_containment_padding: 40
+  # Detector-first fusion: OCR text in no detection whose center is in this
+  # top fraction of the screen is the phone status bar (clock, battery) —
+  # tagged ignored (test_cases §H) instead of uncertain, so it neither
+  # triggers the VLM nor becomes a REVIEW. 0.04 of 2400px = 96px.
+  status_bar_height_norm: 0.04
 
 graph:
   containment_min_overlap: 0.9

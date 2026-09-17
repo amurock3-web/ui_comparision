@@ -91,9 +91,17 @@ ZONE_ONLY_CONFIDENCE_DISCOUNT = 0.5
 # certainty either direction.
 VLM_GROUNDED_CONFIDENCE = 0.75
 
-# Detector classes whose OCR text is separate child content, not their own
-# label (fuse_detections()).
-CONTAINER_CLASSES = {"content_card", "cast_card", "celebrity_card", "navigation_bar"}
+# Detector classes whose OCR text is separate content, not their own label
+# (fuse_detections()). Text on posters/photos is dropped (it is artwork: titles,
+# garbage reads of Tamil art); text in a navigation_bar stays a child element.
+POSTER_CLASSES = {"content_card", "cast_card", "celebrity_card"}
+CONTAINER_CLASSES = POSTER_CLASSES | {"navigation_bar"}
+CHILD_TEXT_CLASSES = CONTAINER_CLASSES - POSTER_CLASSES
+
+# A low-tier detection at least this much inside a more confident detection of
+# another class is a duplicate guess (ss012: a 0.32 content_card 93% inside the
+# floating tab bar's 0.94 tab_item) - ignored instead of uncertain.
+DUPLICATE_INSIDE_FRACTION = 0.8
 
 
 def _normalize(text: Optional[str]) -> str:
@@ -172,6 +180,15 @@ def _point_in_bbox(point, bbox, padding=0) -> bool:
     return (x - padding) <= px <= (x + w + padding) and (y - padding) <= py <= (y + h + padding)
 
 
+def _inside_fraction(a, b) -> float:
+    """Share of bbox a's area that lies inside bbox b."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    iw = max(0.0, min(ax + aw, bx + bw) - max(ax, bx))
+    ih = max(0.0, min(ay + ah, by + bh) - max(ay, by))
+    return iw * ih / (aw * ah) if aw * ah else 0.0
+
+
 def _reading_order(ocr_elements):
     """Lines top to bottom, left to right within a line. Two boxes share a
     line when their centers are within half a box height; a plain (y, x)
@@ -191,6 +208,7 @@ class FusionEngine:
         self.text_similarity_threshold = cfg.get("text_similarity_threshold", 0.6)
         self.badge_keywords = set(cfg.get("badge_keywords", ["free", "new"]))
         self.badge_containment_padding = cfg.get("badge_containment_padding", 40)
+        self.status_bar_height_norm = cfg.get("status_bar_height_norm", 0.04)
 
     def _match_ocr_for_text(self, vlm_text, ocr_elements, used_ocr_ids, location_str="", W=None, H=None):
         """Match VLM text to an OCR detection by similarity, preferring
@@ -477,17 +495,21 @@ class FusionEngine:
         - Each OCR box goes to the smallest detection containing its
           center, preferring any non-container over a container (the
           floating tab bar on ss012 overlays poster cards smaller than
-          itself). If that detection is a container (CONTAINER_CLASSES) the
-          OCR text stays a child element (parent_id set, so differ treats
-          text inside a content_card as dynamic); otherwise its text
-          becomes the detection's text, joined in reading order.
+          itself). Inside a poster/photo (POSTER_CLASSES) the text is
+          artwork: it is dropped and only its id is kept in the card's
+          metadata.ocr_ids (the raw OCR JSON still has it). Inside a
+          navigation_bar it stays a child element (parent_id set).
+          Otherwise it becomes the detection's text, in reading order.
           A low-tier container never hosts text: on ss012 a false 0.32
           content_card over the floating tab bar was swallowing the tab
           labels as "dynamic" card text, hiding them from comparison.
         - OCR text inside no detection is kept as evidence, marked
           match_status="uncertain" (rules.md §10).
         - Detections of a low_confidence_class, or in the "low" tier, are
-          also marked uncertain, so differ reports them as REVIEW.
+          also marked uncertain, so differ reports them as REVIEW - unless a
+          low-tier one lies mostly inside a more confident detection of
+          another class (DUPLICATE_INSIDE_FRACTION): then it is tagged
+          ignored="overlapped_by_higher_confidence" (kept, never compared).
         - vlm_result is optional; main.py runs the VLM only when something
           came out uncertain. A VLM classification tied to OCR by som_id
           or text similarity (never zone-only) then either classifies an
@@ -505,6 +527,12 @@ class FusionEngine:
             if d.metadata.get("low_confidence_class") or d.confidence_tier == "low":
                 meta["match_status"] = "uncertain"
             dets.append(d.model_copy(update={"id": f"el_{i:04d}", "metadata": meta}))
+        for d in dets:
+            if d.confidence_tier == "low" and any(
+                    o.class_ != d.class_ and o.confidence > d.confidence
+                    and _inside_fraction(d.bbox, o.bbox) >= DUPLICATE_INSIDE_FRACTION for o in dets):
+                d.metadata.pop("match_status", None)
+                d.metadata["ignored"] = "overlapped_by_higher_confidence"
 
         host_of = {}  # ocr id -> smallest detection containing its center
         for ocr_el in ocr_result.elements:
@@ -514,16 +542,17 @@ class FusionEngine:
                 host_of[ocr_el.id] = min(hosts, key=lambda d: (d.class_ in CONTAINER_CLASSES,
                                                                d.bbox[2] * d.bbox[3]))
 
-        texts = {}
+        covered = {}  # detection id -> OCR boxes it takes (label text, or dropped poster text)
         for ocr_el in ocr_result.elements:
             host = host_of.get(ocr_el.id)
-            if host is not None and host.class_ not in CONTAINER_CLASSES:
-                texts.setdefault(host.id, []).append(ocr_el)
+            if host is not None and host.class_ not in CHILD_TEXT_CLASSES:
+                covered.setdefault(host.id, []).append(ocr_el)
         for d in dets:
-            if d.id in texts:
-                texts[d.id] = _reading_order(texts[d.id])
-                d.text = " ".join(o.text for o in texts[d.id])
-                d.metadata["ocr_ids"] = [o.id for o in texts[d.id]]
+            if d.id in covered:
+                ocr_els = _reading_order(covered[d.id])
+                d.metadata["ocr_ids"] = [o.id for o in ocr_els]
+                if d.class_ not in POSTER_CLASSES:
+                    d.text = " ".join(o.text for o in ocr_els)
 
         vlm_class = {}  # orphan ocr id -> (vlm element, method)
         if vlm_result is not None:
@@ -545,14 +574,16 @@ class FusionEngine:
         elements = list(dets)
         for ocr_el in ocr_result.elements:
             host = host_of.get(ocr_el.id)
-            if host is not None and host.class_ not in CONTAINER_CLASSES:
-                continue
+            if host is not None and host.class_ not in CHILD_TEXT_CLASSES:
+                continue  # already a label, or dropped poster text
             metadata = {"ocr_id": ocr_el.id}
             cls, el_source = None, "ocr"
             if ocr_el.id in vlm_class:
                 vlm_el, method = vlm_class[ocr_el.id]
                 cls, el_source = vlm_el.class_, "fused"
                 metadata.update(vlm_id=vlm_el.id, match_method=method, bbox_source="ocr_exact")
+            elif host is None and ocr_el.center[1] < self.status_bar_height_norm * H:
+                metadata["ignored"] = "status_bar"  # §H: clock/battery, never compared
             elif host is None:
                 metadata["match_status"] = "uncertain"
             elements.append(UIElement(

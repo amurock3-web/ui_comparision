@@ -30,8 +30,8 @@ reference/evaluation/training-data material — it is not this project's archite
 
 **Architecture pipeline** (see `architecture.md` for full detail):
 ```
-Production screenshot → YOLO detector + PaddleOCR → Fusion (VLM only if uncertain) → UI JSON → UI Graph
-Client screenshot      → YOLO detector + PaddleOCR → Fusion (VLM only if uncertain) → UI JSON → UI Graph
+Production screenshot → YOLO detector + PaddleOCR → Fusion (--vlm: VLM if uncertain) → UI JSON → UI Graph
+Client screenshot      → YOLO detector + PaddleOCR → Fusion (--vlm: VLM if uncertain) → UI JSON → UI Graph
 Production ↔ Client    → JSON comparison → Graph comparison → geometry/text comparison → report
 ```
 
@@ -77,12 +77,8 @@ not run"; the comparison/reporting code and its tests already exist and are read
 the moment a client screenshot is supplied — this is not undone work, it's an unblocked
 integration step.
 
-**Uncommitted work, still (2026-09-07):** nothing from this session — or the substantial Phase
-3-7 build-out that predates it — is committed to git yet. `git status` at session start already
-showed 5 staged doc files, 18 modified-unstaged source files, and 10 untracked files; today's
-session added more changes on top of the same already-modified files (the fusion rework, 4
-script/main.py fixes, 2 new `visualize.py` files under `graph/`) without committing any of it.
-Treat committing as overdue, not optional, before this grows further.
+**Commits (2026-09-17):** the earlier backlog is committed on branch `detector-integration`
+(verdict layer, detector integration), not yet merged into `main`.
 
 Every module also has a config surface already calibrated with real rationale, not just
 design-doc placeholders — see `config/config.yaml` (fusion thresholds, matching weights, VLM
@@ -98,8 +94,13 @@ current tuning, not TODOs.
 - **Runs in its own Python** (`UI_DETECTOR_PYTHON`, see `environment.md` §9) because
   ultralytics/torch must not share an environment with paddle. `config/detector.yaml`
   `engine: yolo` (default) or `gt_stub` (hand labels, labelled screens only).
-- **New `main.py` flow per screen:** detector → OCR → `fuse_detections(dets, ocr)`; only if any
-  element is `uncertain` → `VLMEngine.analyze()` → `fuse_detections(dets, ocr, vlm)`.
+- **New `main.py` flow per screen:** detector → OCR → `fuse_detections(dets, ocr)`; only with
+  `--vlm` and only if any element is `uncertain` → `VLMEngine.analyze()` →
+  `fuse_detections(dets, ocr, vlm)`. Without `--vlm`, uncertain elements → REVIEW. The VLM was
+  made opt-in because the status-bar clock triggered it on every screen; status-bar text is now
+  `metadata.ignored = "status_bar"` (top 4% of the screen, config `fusion.status_bar_height_norm`)
+  and always PASS. On ss012 only 2 items stay uncertain: the false 0.32 card and "VILLAN" (text on
+  a cut-off top poster the detector missed).
   `ground_content_cards_experimental()` is no longer called; detector boxes replace it.
 - **Verified 2026-09-17, without running OCR or VLM** (saved `output/ocr/ss012_*_ocr.json`
   plus the real detector):
@@ -109,6 +110,13 @@ current tuning, not TODOs.
     ss012 is one of the training screens, so this is optimistic.
   - Self-comparison: 100% / PASS with both `gt_stub` and `yolo`.
   - production vs client ss012: `gt_stub` PASS 91.9%, `yolo` REVIEW 90.0% (one size REVIEW).
+- **Fusion cleanup (2026-09-17, user decision):** poster text is not needed, so OCR text on
+  content/cast/celebrity cards is dropped from the fused UI JSON (its ids are kept in the card's
+  `metadata.ocr_ids`; the raw OCR JSON keeps the text). The false 0.32 card is now
+  `ignored="overlapped_by_higher_confidence"`. On ss012, fusion went from 54 to 36 elements with only 1
+  uncertain ("VILLAN"). Production vs client: REVIEW, 97.2%, the only finding is the VILLAN size
+  change. Self-comparison is 100% PASS. The blanked WALTER poster is still not caught (needs the
+  pixel check).
 - **Floating tab bar fix (2026-09-17):** YOLO labels the "Movies / Live TV / Free / More" pill as
   one `tab_item`, the same as the hand labels, plus a false 0.32 `content_card` on top of it. Fusion was
   giving the tab labels to that card and to the real posters under the pill, so they were skipped as
@@ -116,8 +124,20 @@ current tuning, not TODOs.
   hold text, and joined text uses line-aware reading order → tab text "Movies Live TV Free More".
   The VLM was not used: its fallback can't overrule a detector class, and it flip-flopped
   navigation_bar ↔ tab_item on this screen.
-- **Not yet done:** a full `main.py` run (needs OCR + VLM); measuring the detector on
-  screenshots outside the training set; retraining with more weak-class examples.
+- **Unseen-screen check (2026-09-17):** the 28 screenshots in
+  `Documents/ss_data/mobile/{home,search}` that are not in the training set (checked by hash and
+  by image similarity; 4 near-copies were skipped). Detector only; the box images are in
+  `output/detector/unseen/`. 761 detections: 81% high, 14% medium, 5% low confidence.
+  - Reliable: content_card, section_title, bottom navigation_bar + its 5 tabs, the floating
+    "Movies / Live TV / Free / More" tab_item, standard "Free" badges. It also handled a new
+    screen type (language picker) sensibly.
+  - Weak, worth retraining: the "SUN NXT / SUN NXT SHORTS" toggle (labelled button,
+    section_title, tab_item or content_card on different screens, often low confidence; its
+    second half missed); "Free" badges in unusual spots (called icon at 0.34); crown badges
+    (missed or icon at 0.28); a "Dolby Vision" tile called overlay_badge; a poster called
+    celebrity_card; the X close icon on the language picker missed; the floating tab bar only
+    0.51 when it overlaps a poster.
+- **Not yet done:** a full `main.py` run (needs OCR); retraining with the weak cases above.
   `differ.py` still has the `vlm_grounded` bands, used only by the legacy `fuse()` path.
 
 ## VLM benchmarking (Phase 2) — history
@@ -256,7 +276,7 @@ to handle (e.g. loosen the class score for known-similar classes, or improve pro
 
 Re-prioritized 2026-09-17 around `test_cases_pass_fail.md` (its "v0 scope": A1, A3, B1, B2, C1,
 D1, D2, E1). In priority order:
-1. **Commit the outstanding uncommitted work** — see "Uncommitted work" note above. Still overdue.
+1. ~~Commit the outstanding work~~ — done 2026-09-17 on branch `detector-integration`.
 2. **Verdict layer in `differ.py`/`report.py`** — *implemented 2026-09-17, tests not run yet*
    (`tests/test_comparison.py` type names updated to `MISSING/EXTRA_IN_PRODUCTION`):
    - Flip the reference side so client = truth, and report "missing/extra in production" (B1/B2).

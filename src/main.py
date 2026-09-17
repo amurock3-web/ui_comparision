@@ -1,6 +1,6 @@
 """
-Orchestration entry point: Detector + OCR -> Fusion (VLM only when something
-is uncertain) -> Graph -> Comparison -> Report, for a Production/Client
+Orchestration entry point: Detector + OCR -> Fusion (with --vlm: VLM for what
+is still uncertain) -> Graph -> Comparison -> Report, for a Production/Client
 screenshot pair. The detector engine (gt_stub / yolo) is set in
 config/detector.yaml.
 """
@@ -19,7 +19,7 @@ from src.reporting.visualize import draw_comparison_result
 from src.vlm.engine import VLMEngine
 
 
-def process_screen(image_path: Path, screen_id: str, source_label: str, detector):
+def process_screen(image_path: Path, screen_id: str, source_label: str, detector, use_vlm: bool):
     image_path = Path(image_path)
 
     print(f"\n=== Detector - {source_label} screen {screen_id!r} ===")
@@ -33,7 +33,7 @@ def process_screen(image_path: Path, screen_id: str, source_label: str, detector
     print(f"\n=== Fusion - {source_label} screen {screen_id!r} ===")
     fusion = FusionEngine()
     ui_doc = fusion.fuse_detections(detections, ocr_result, screen_id=screen_id, source=source_label)
-    if any(e.metadata.get("match_status") == "uncertain" for e in ui_doc.elements):
+    if use_vlm and any(e.metadata.get("match_status") == "uncertain" for e in ui_doc.elements):
         print(f"\n=== VLM fallback - {source_label} screen {screen_id!r} ===")
         vlm_result = VLMEngine().analyze(image_path, ocr_result, screen_id=screen_id)
         vlm_result.save_json(Path(f"output/vlm/{screen_id}_{source_label}_vlm.json"))
@@ -53,14 +53,17 @@ def main():
     parser.add_argument("--production-screen-id", required=True)
     parser.add_argument("--client-image", required=True, help="Path to the client screenshot.")
     parser.add_argument("--client-screen-id", required=True)
+    parser.add_argument("--vlm", action="store_true",
+                        help="Ask the VLM about elements detector+OCR left uncertain (slow). "
+                             "Without it they are reported as REVIEW.")
     args = parser.parse_args()
 
     for out_dir in ("output/ocr", "output/vlm", "output/json", "output/graph", "output/reports"):
         Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     detector = load_detector()
-    prod_doc, prod_graph = process_screen(Path(args.production_image), args.production_screen_id, "production", detector)
-    client_doc, client_graph = process_screen(Path(args.client_image), args.client_screen_id, "client", detector)
+    prod_doc, prod_graph = process_screen(Path(args.production_image), args.production_screen_id, "production", detector, args.vlm)
+    client_doc, client_graph = process_screen(Path(args.client_image), args.client_screen_id, "client", detector, args.vlm)
 
     print("\n=== Comparison ===")
     match_result = ElementMatcher().match(prod_doc, client_doc, prod_graph, client_graph)

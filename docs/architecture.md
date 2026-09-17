@@ -12,7 +12,7 @@ YOLO detector (ui16_v1)  +  PaddleOCR
 class + bbox            text + coordinates
         └───────┬───────────────┘
                 ↓
-Fusion ──(only if something is uncertain)──→ Local VLM (classify-only)
+Fusion ──(--vlm, only if something is uncertain)──→ Local VLM (classify-only)
         ↓
 UI JSON
         ↓
@@ -62,9 +62,9 @@ Runtime: Ollama 0.33.3. Current model: qwen2.5vl:7b (qwen3-vl:4b was tried first
 its thinking mode can't be disabled and exhausts the token budget on screens with many repeated
 elements; see `memory.md`'s VLM benchmarking history).
 
-The VLM is a fallback in `main.py`: `VLMEngine.analyze()` (classify-only — class/text/
-description/approximate_location, no bbox) runs only when detector+OCR fusion left something
-`uncertain`. `VLMEngine.ground_content_cards_experimental()` (native `bbox_2d` grounding for
+The VLM is an opt-in fallback: with `main.py --vlm`, `VLMEngine.analyze()` (classify-only —
+class/text/description/approximate_location, no bbox) runs when detector+OCR fusion left
+something `uncertain`. Without `--vlm`, uncertain elements are reported as REVIEW. `VLMEngine.ground_content_cards_experimental()` (native `bbox_2d` grounding for
 content_card) is no longer called by `main.py`; the detector replaced it, because VLM boxes
 drifted ~4% between sessions.
 
@@ -81,11 +81,17 @@ rather than calling Ollama everywhere.
 
 Main path — `FusionEngine.fuse_detections(detections, ocr, vlm=None)`:
 - every detection is kept with its detector class/bbox/confidence;
-- each OCR box goes to the smallest detection containing its center; inside a container
-  (content_card, cast_card, celebrity_card, navigation_bar) it stays a child element with
-  `parent_id`, otherwise its text becomes the detection's text (reading order);
+- each OCR box goes to the smallest detection containing its center (a non-card box wins over a
+  card box). On a poster (content_card, cast_card, celebrity_card) the text is artwork: it is
+  dropped from the UI JSON, and only its id is kept in the card's `metadata.ocr_ids` (the raw OCR
+  JSON keeps the text). In a navigation_bar it stays a child element with `parent_id`. Otherwise
+  its text becomes the detection's text (reading order);
+- a low-tier detection ≥80% inside a more confident detection of another class is a duplicate
+  guess: `metadata.ignored = "overlapped_by_higher_confidence"`, always PASS;
 - OCR text inside no detection, and detections that are low-tier or of a
   low_confidence_class, get `metadata.match_status = "uncertain"` (→ REVIEW);
+- OCR text in no detection inside the top `fusion.status_bar_height_norm` (0.04) of the screen
+  is the phone status bar: tagged `metadata.ignored = "status_bar"`, always PASS (spec §H);
 - with a VLM result, a VLM class tied to OCR by `ocr_ref_id` or text similarity (never
   zone-only) classifies an orphan OCR box or confirms an uncertain detection of the same class.
 

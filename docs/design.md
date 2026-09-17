@@ -32,8 +32,9 @@ Keep low-confidence OCR observations as evidence rather than deleting them immed
 
 3. VLM design
 
-The VLM is now a fallback: `main.py` calls it only when detector+OCR fusion leaves an
-`uncertain` element.
+The VLM is now an opt-in fallback: `main.py --vlm` calls it only when detector+OCR fusion
+leaves an `uncertain` element. Status-bar text (clock, battery) is ignored, not uncertain, so it
+does not trigger the VLM.
 
 The VLM receives the screenshot and useful OCR observations, plus the allowed taxonomy. Two
 separate, versioned prompts, not one: `v2_qwen2.5vl_classify_only` (class/text/description/

@@ -331,7 +331,8 @@ def test_detections_take_ocr_text_and_cards_keep_children():
         _ocr_el("ocr_1", "TV", [110, 110, 80, 40]),
         _ocr_el("ocr_3", "Free", [15, 315, 60, 30]),
         _ocr_el("ocr_4", "WALTER", [100, 500, 200, 50]),
-        _ocr_el("ocr_5", "12:30", [900, 10, 80, 30]),
+        _ocr_el("ocr_5", "12:30", [900, 10, 80, 30]),       # status bar
+        _ocr_el("ocr_6", "Top Picks", [600, 900, 200, 40]),
     ])
     doc = FusionEngine().fuse_detections(dets, ocr, screen_id="ss_test")
     by_ocr = {e.metadata.get("ocr_id"): e for e in doc.elements}
@@ -340,9 +341,10 @@ def test_detections_take_ocr_text_and_cards_keep_children():
     assert tab.text == "TV Shows" and tab.source == "detector"   # reading order
     assert badge.text == "Free"
     assert card.text is None
-    assert by_ocr["ocr_4"].parent_id == card.id                  # dynamic child text
-    assert "match_status" not in by_ocr["ocr_4"].metadata
-    assert by_ocr["ocr_5"].metadata["match_status"] == "uncertain"
+    assert "ocr_4" not in by_ocr                                 # poster text dropped
+    assert card.metadata["ocr_ids"] == ["ocr_4"]                 # ...but traceable
+    assert by_ocr["ocr_5"].metadata == {"ocr_id": "ocr_5", "ignored": "status_bar"}
+    assert by_ocr["ocr_6"].metadata["match_status"] == "uncertain"
     assert len(doc.elements) == 5
 
 
@@ -383,6 +385,7 @@ def test_low_tier_card_does_not_swallow_tab_text():
     tab, false_card, poster = doc.elements[:3]
     by_ocr = {e.metadata.get("ocr_id"): e for e in doc.elements}
     assert tab.text == "Movies Live TV More Soon"
-    assert false_card.metadata["match_status"] == "uncertain"
-    assert by_ocr["ocr_4"].parent_id == poster.id      # poster's own text still dynamic
-    assert len(doc.elements) == 4
+    assert false_card.metadata["ignored"] == "overlapped_by_higher_confidence"
+    assert "match_status" not in false_card.metadata
+    assert "ocr_4" not in by_ocr and poster.metadata["ocr_ids"] == ["ocr_4"]
+    assert len(doc.elements) == 3
