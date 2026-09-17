@@ -16,10 +16,22 @@ matching:
     context: 0.1
 
 comparison:
-  text_similarity_threshold: 0.85
-  position_threshold_norm: 0.02
-  size_ratio_threshold: 0.15
   structural_similarity_threshold: 0.5
+  # PASS/REVIEW/FAIL bands from docs/test_cases_pass_fail.md — proposed
+  # defaults, not yet confirmed by the manager.
+  # C1: center distance as a fraction of the screen diagonal.
+  # <= pass → PASS, <= fail → REVIEW, > fail → FAIL (Major if > major, else Minor).
+  position_bands: {pass: 0.01, fail: 0.03, major: 0.06}
+  # Looser for content_card boxes from VLM grounding (~4% drift observed
+  # between runs on ss012, see memory.md).
+  vlm_grounded_position_bands: {pass: 0.04, fail: 0.08, major: 0.12}
+  # C2: max(width, height) relative change. <= pass PASS, <= fail REVIEW, else FAIL Major.
+  size_bands: {pass: 0.05, fail: 0.15}
+  # E1: label text is compared only for these classes; everything else is
+  # dynamic content (§H). Exact match PASS, one-character slip REVIEW, else FAIL.
+  static_text_classes: [tab_item, button, section_title, search_bar]
+  # B1: missing element of these classes is Critical (others Major).
+  critical_classes: [button, tab_item, navigation_bar, logo]
 
 vlm:
   model: qwen2.5vl:7b

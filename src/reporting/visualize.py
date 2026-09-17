@@ -8,8 +8,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 DIFF_COLORS = {
-    "MISSING_IN_CLIENT": "red",
-    "EXTRA_IN_CLIENT": "yellow",
+    "MISSING_IN_PRODUCTION": "red",
+    "EXTRA_IN_PRODUCTION": "yellow",
     "CLASS_DIFFERENCE": "magenta",
     "TEXT_DIFFERENCE": "orange",
     "POSITION_DIFFERENCE": "cyan",
@@ -52,7 +52,7 @@ def draw_comparison_result(production_image_path, client_image_path, production_
 
     drawn = 0
     for d in differences:
-        if d.type == "MATCH":
+        if d.verdict == "PASS":
             continue
         color = DIFF_COLORS.get(d.type, "white")
         _draw_box(prod_draw, prod_by_id.get(d.production_id), color, d.type, font)
