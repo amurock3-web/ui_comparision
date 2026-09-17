@@ -36,7 +36,7 @@ class UIElement(BaseModel):
     center: Optional[list[float]] = None           # [cx, cy]
     confidence: float
     confidence_tier: Literal["high", "medium", "low"]
-    source: Literal["ocr", "vlm", "fused"]
+    source: Literal["ocr", "vlm", "fused", "detector"]
     parent_id: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
 
