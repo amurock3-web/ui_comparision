@@ -58,8 +58,11 @@ def test_gt_stub_unknown_image_is_loud():
         det.detect(Path("never_labelled.png"))
 
 
-def test_load_detector_default_is_gt_stub():
-    assert isinstance(load_detector(), GTStubDetector)
+def test_load_detector_gt_stub(tmp_path):
+    cfg = tmp_path / "detector.yaml"
+    cfg.write_text("engine: gt_stub\nbundle: models/ui16_v1\npython_env_var: X\n"
+                   "confidence_high: 0.7\nconfidence_medium: 0.4\n")
+    assert isinstance(load_detector(cfg), GTStubDetector)
 
 
 def test_yolo_without_python_env_var_is_loud(tmp_path, monkeypatch):

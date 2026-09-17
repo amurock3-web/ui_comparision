@@ -1,14 +1,14 @@
 # UI element detector (src/detector/) — settings for the model bundle
 # produced by the UI_Detection_model_training repo (its docs/INTERFACE.md).
 #
-# Kept out of config.yaml on purpose: the detector is optional and not yet
-# wired into main.py.
+# main.py runs this first for every screen; fusion then hangs OCR text on
+# the detections (FusionEngine.fuse_detections).
 
 # gt_stub: replays hand labels from gt_detections.json — a perfect detector,
 #          so any bug found with it is a pipeline bug, not a detection error.
 #          Only knows the 103 labelled screenshots, by file name.
 # yolo:    the real model, best.pt.
-engine: gt_stub
+engine: yolo
 
 bundle: models/ui16_v1
 

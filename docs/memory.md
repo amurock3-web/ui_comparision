@@ -6,7 +6,12 @@ the infra spec, `prd_section7_update.md` holds the locked taxonomy — none of t
 day-to-day progress anymore. This file does. Update it whenever phase status, environment, or
 the next task changes; do not let a second copy of this table grow anywhere else.
 
-*Last verified against the actual code tree: 2026-09-07.*
+**Acceptance spec (added 2026-09-17):** `test_cases_pass_fail.md` defines what the tool must
+decide — PASS / REVIEW / FAIL per check, Critical/Major/Minor severity, a screen verdict, and an
+ignore list for dynamic content. It treats the **client design as the reference** and production
+as the thing under test. Thresholds there are proposed defaults, not confirmed by the manager.
+
+*Last verified against the actual code tree: 2026-09-17 (detector integration).*
 
 ## Project identity
 
@@ -25,8 +30,8 @@ reference/evaluation/training-data material — it is not this project's archite
 
 **Architecture pipeline** (see `architecture.md` for full detail):
 ```
-Production screenshot → PaddleOCR → local VLM → Fusion → UI JSON → UI Graph
-Client screenshot      → PaddleOCR → local VLM → Fusion → UI JSON → UI Graph
+Production screenshot → YOLO detector + PaddleOCR → Fusion (VLM only if uncertain) → UI JSON → UI Graph
+Client screenshot      → YOLO detector + PaddleOCR → Fusion (VLM only if uncertain) → UI JSON → UI Graph
 Production ↔ Client    → JSON comparison → Graph comparison → geometry/text comparison → report
 ```
 
@@ -63,7 +68,7 @@ assume the Docker container from the benchmark numbers below is the one currentl
 | 7 — Reporting | `src/reporting/report.py` + `visualize.py` | ✅ Built 2026-09-07 (was previously just a docstring stub — earlier "built + tested" claim in this file was wrong, corrected here). `ReportGenerator` (counts + similarity % + findings) and `draw_comparison_result` (side-by-side production/client with differences highlighted). No unit tests yet (`tests/test_reporting.py` is still a placeholder). |
 | 8 — End-to-end POC | `src/main.py` now takes `--production-image`/`--client-image` (CLI changed from single-image to a real pair) and runs the full chain: OCR → VLM(classify+ground) → Fusion → Graph → Matcher → DifferenceEngine → Report → visualization | ✅ **Ran successfully end-to-end 2026-09-07** against `input/production/ss012.png` and a synthetic client image (WALTER poster card blanked out) — 68.3% similarity, correctly caught the removed card/title as `MISSING_IN_CLIENT`. See "POC first run" below for real findings and open issues it surfaced. |
 | 9 — Batch (103 screens) | Not started — out of POC scope, see `rules.md` §12 | Future |
-| 10 — Detector | Not started — only after pipeline is proven | Future |
+| 10 — Detector | `src/detector/` + `models/ui16_v1` (YOLOv8s, val mAP50 0.877) wired into `main.py` as the primary class/bbox source; fusion via `FusionEngine.fuse_detections()` | ✅ Integrated 2026-09-17 — see "Detector integration" below |
 | 11 — Productionization | Not started | Future |
 
 **Why Phases 5-7 aren't wired in yet:** `input/client/` has no screenshot. `main.py`'s
@@ -83,6 +88,37 @@ Every module also has a config surface already calibrated with real rationale, n
 design-doc placeholders — see `config/config.yaml` (fusion thresholds, matching weights, VLM
 prompt version, JSON-schema-vs-free-form decoding tradeoff, etc.). Treat those values as the
 current tuning, not TODOs.
+
+## Detector integration (Phase 10) — 2026-09-17
+
+- **Model:** `models/ui16_v1` — YOLOv8s fine-tuned in the `UI_Detection_model_training` repo
+  on the 103 labelled screens (83 train / 20 val). Val mAP50 0.877, mAP50-95 0.703. Weak
+  classes: `rank_number` (0.62, 4 instances), `button` (0.72), `icon` (0.70),
+  `metadata_text` (0.71); `rank_number`/`text_input`/`logo` are flagged `low_confidence_class`.
+- **Runs in its own Python** (`UI_DETECTOR_PYTHON`, see `environment.md` §9) because
+  ultralytics/torch must not share an environment with paddle. `config/detector.yaml`
+  `engine: yolo` (default) or `gt_stub` (hand labels, labelled screens only).
+- **New `main.py` flow per screen:** detector → OCR → `fuse_detections(dets, ocr)`; only if any
+  element is `uncertain` → `VLMEngine.analyze()` → `fuse_detections(dets, ocr, vlm)`.
+  `ground_content_cards_experimental()` is no longer called; detector boxes replace it.
+- **Verified 2026-09-17, without running OCR or VLM** (saved `output/ocr/ss012_*_ocr.json`
+  plus the real detector):
+  - YOLO ran twice on `input/client/ss012.png` → byte-identical output (the VLM grounding it
+    replaces drifted ~4%).
+  - It found 33 elements vs 35 hand labels (19 vs 21 content_card; all other classes exact).
+    ss012 is one of the training screens, so this is optimistic.
+  - Self-comparison: 100% / PASS with both `gt_stub` and `yolo`.
+  - production vs client ss012: `gt_stub` PASS 91.9%, `yolo` REVIEW 90.0% (one size REVIEW).
+- **Floating tab bar fix (2026-09-17):** YOLO labels the "Movies / Live TV / Free / More" pill as
+  one `tab_item`, the same as the hand labels, plus a false 0.32 `content_card` on top of it. Fusion was
+  giving the tab labels to that card and to the real posters under the pill, so they were skipped as
+  dynamic card text. Now OCR text prefers a non-container box, low-tier containers never
+  hold text, and joined text uses line-aware reading order → tab text "Movies Live TV Free More".
+  The VLM was not used: its fallback can't overrule a detector class, and it flip-flopped
+  navigation_bar ↔ tab_item on this screen.
+- **Not yet done:** a full `main.py` run (needs OCR + VLM); measuring the detector on
+  screenshots outside the training set; retraining with more weak-class examples.
+  `differ.py` still has the `vlm_grounded` bands, used only by the legacy `fuse()` path.
 
 ## VLM benchmarking (Phase 2) — history
 
@@ -218,19 +254,34 @@ to handle (e.g. loosen the class score for known-similar classes, or improve pro
 
 ## Next immediate task
 
-In priority order, all still open as of 2026-09-07:
-1. **Commit today's (and the pre-existing) uncommitted work** — see "Uncommitted work" note above.
-   Overdue, keeps getting deferred. (Note: `report.py`/`visualize.py`/`main.py` changes from the
-   POC-completion push above are also uncommitted.)
-2. **Decide how to handle VLM classification inconsistency between separate calls** — see "POC
-   first run" above. Real false-positive source, not hypothetical.
-3. **Fix `tests/test_fusion.py`'s 14 broken call sites** (`grounded_cards` now required).
-4. Get a **real** client screenshot (the current one is synthetic/self-modified) into
-   `input/client/`.
-5. Decide on the zone-tie-break bug (Fusion rework section above) — fix or leave.
-6. Implement the `differ.py` position-tolerance split for `bbox_source="vlm_grounded"` vs
-   `"ocr_exact"` (designed 2026-09-07, see VLM benchmarking history above).
-7. Write tests for `report.py`/`visualize.py` (`tests/test_reporting.py` is still a placeholder).
+Re-prioritized 2026-09-17 around `test_cases_pass_fail.md` (its "v0 scope": A1, A3, B1, B2, C1,
+D1, D2, E1). In priority order:
+1. **Commit the outstanding uncommitted work** — see "Uncommitted work" note above. Still overdue.
+2. **Verdict layer in `differ.py`/`report.py`** — *implemented 2026-09-17, tests not run yet*
+   (`tests/test_comparison.py` type names updated to `MISSING/EXTRA_IN_PRODUCTION`):
+   - Flip the reference side so client = truth, and report "missing/extra in production" (B1/B2).
+   - Add PASS/REVIEW/FAIL + severity per finding and the screen-verdict rule.
+   - Replace single thresholds (`position_threshold_norm`, `size_ratio_threshold`) with
+     PASS/REVIEW/FAIL bands (C1/C2). The looser band for `bbox_source="vlm_grounded"` goes here.
+   - Ignore list (§H): no text compare for children of `content_card` or `rank_number` values;
+     compare text only for static classes (tab_item, button, section_title, search_bar) — E1.
+3. **Screen-level checks A1 (orientation) and A3 (theme)** — plain image math, no OCR/VLM.
+4. **Mutation test set** instead of waiting for a real client screenshot: a script that makes
+   labeled defect copies of `ss012` (rotate, darken bg, hue-shift Play, paint out a tab, …) plus
+   expected verdicts. Cache OCR/VLM JSON per image or run on the GPU box (CPU run ≈ 15-20 min).
+   Note: the current synthetic pair (WALTER card removed) is a B9 card-count case — Minor/REVIEW
+   under the spec, not a clear FAIL.
+5. **VLM class flip-flop** (`navigation_bar` ↔ `tab_item`, see "POC first run") — under C4 a class
+   change is a Major FAIL, so treat known-confusable pairs as REVIEW. Plus the REVIEW path (§I):
+   use fusion's `match_status="uncertain"`, low confidence, and "<50% matched → cannot compare".
+6. **Colour D1/D2** (ΔE2000 on matched element crops; `opencv-contrib-python` already gives Lab
+   and SSIM, no new dependency), then ORDER_DIFFERENCE for B3/B4 via existing `ORDERED_BEFORE` edges.
+7. Housekeeping: fix `tests/test_fusion.py`'s 12 failing legacy `fuse()` tests (they omit
+   `grounded_cards`; still failing 2026-09-17); write `tests/test_reporting.py`.
+7a. Detector: run `main.py` end to end with `engine: yolo`; measure it on screenshots outside the
+   training set; collect more `rank_number`/`text_input`/`logo` examples and retrain.
+8. Later: the rest of the spec (B5-B9, C3, D3-D7, E2-E7, F, G). Zone-tie-break bug only if the
+   mutation runs show it causing false B1/E1 fails.
 
 ## Continuation instructions (for any AI assistant picking this up)
 
@@ -245,9 +296,9 @@ In priority order, all still open as of 2026-09-07:
 8. Record new benchmark results here, in the relevant history section above.
 9. Do not discard working components without reason.
 10. Always give the exact command(s) to run alongside any code.
-11. `FusionEngine.fuse()` requires a `grounded_cards` argument (a `VLMGroundedResult` from
-    `VLMEngine.ground_content_cards_experimental()`) as of 2026-09-07 — there is no grid-inference
-    fallback anymore. Any new caller must call the grounding function first.
+11. `main.py` uses `FusionEngine.fuse_detections()` (detector-first). The legacy
+    `FusionEngine.fuse()` still requires a `grounded_cards` argument (a `VLMGroundedResult` from
+    `VLMEngine.ground_content_cards_experimental()`); there is no grid-inference fallback.
 12. For fast iteration on fusion/graph logic against an already-processed screen, reuse the saved
     JSON in `output/{ocr,vlm}/` instead of re-running OCR/VLM — see "Graph (Phase 4)" section
     above for the pattern.

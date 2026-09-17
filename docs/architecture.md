@@ -1,21 +1,18 @@
 System Architecture --- UI Comparison
 1. Goal
 
-Compare Production and Client OTT screenshots locally using OCR, VLM, structured JSON, graphs and deterministic comparison.
+Compare Production and Client OTT screenshots locally using a fine-tuned UI detector, OCR, a VLM fallback, structured JSON, graphs and deterministic comparison.
 
 2. High-level flow
 text
 Production screenshot
         ↓
-PaddleOCR
-        ↓
-text + coordinates
-        ↓
-Local VLM
-        ↓
-visual semantics
-        ↓
-Fusion
+YOLO detector (ui16_v1)  +  PaddleOCR
+        ↓                       ↓
+class + bbox            text + coordinates
+        └───────┬───────────────┘
+                ↓
+Fusion ──(only if something is uncertain)──→ Local VLM (classify-only)
         ↓
 UI JSON
         ↓
@@ -35,6 +32,24 @@ Production side    Client side
 
 Loads local screenshots, validates image dimensions and creates Production/Client pairs.
 
+3a. Detector
+
+`src/detector/engine.py`, configured in `config/detector.yaml`. A YOLOv8s model fine-tuned on
+the 16-class taxonomy (bundle `models/ui16_v1/`: `best.pt`, `model_card.json`,
+`classes_16.txt`, `gt_detections.json`; weights are not in git). It gives class, bbox and
+confidence for every element and is deterministic (same image → identical boxes).
+
+Two engines behind `load_detector().detect(image) -> list[UIElement]`:
+- `yolo` (default): runs `best.pt` via `src/detector/yolo_worker.py` in a separate Python
+  named by `UI_DETECTOR_PYTHON`, because ultralytics/torch must not share an environment
+  with paddlepaddle-gpu.
+- `gt_stub`: replays the hand labels. A perfect detector for the 103 labelled screens, so a
+  bug seen with it is a pipeline bug.
+
+The bundle's class order is checked against `config/classes.json` at load time. Classes with
+too few training examples (`rank_number`, `text_input`, `logo`) are tagged
+`metadata.low_confidence_class`.
+
 4. OCR engine
 
 Technology: - PaddleOCR - PaddlePaddle 3.2.0 - PP-OCRv6 family - Pillow for image handling/visualization
@@ -47,11 +62,11 @@ Runtime: Ollama 0.33.3. Current model: qwen2.5vl:7b (qwen3-vl:4b was tried first
 its thinking mode can't be disabled and exhausts the token budget on screens with many repeated
 elements; see `memory.md`'s VLM benchmarking history).
 
-Two separate calls, not one: `VLMEngine.analyze()` (classify-only — class/text/description/
-approximate_location, no bbox) is the default path; `VLMEngine.ground_content_cards_experimental()`
-(Qwen2.5-VL's native `bbox_2d` grounding, content_card only) supplies real geometry for cards.
-Splitting classification from grounding into two calls was found to work better than one combined
-prompt (combining them missed cards).
+The VLM is a fallback in `main.py`: `VLMEngine.analyze()` (classify-only — class/text/
+description/approximate_location, no bbox) runs only when detector+OCR fusion left something
+`uncertain`. `VLMEngine.ground_content_cards_experimental()` (native `bbox_2d` grounding for
+content_card) is no longer called by `main.py`; the detector replaced it, because VLM boxes
+drifted ~4% between sessions.
 
 Responsibilities: - UI semantic classification - visual component recognition - contextual interpretation - relationships - difficult visual content
 
@@ -64,7 +79,17 @@ rather than calling Ollama everywhere.
 
 6. Fusion
 
-Combines OCR and VLM. For most classes: SoM-style id match (VLM's own `ocr_ref_id`) first, then
+Main path — `FusionEngine.fuse_detections(detections, ocr, vlm=None)`:
+- every detection is kept with its detector class/bbox/confidence;
+- each OCR box goes to the smallest detection containing its center; inside a container
+  (content_card, cast_card, celebrity_card, navigation_bar) it stays a child element with
+  `parent_id`, otherwise its text becomes the detection's text (reading order);
+- OCR text inside no detection, and detections that are low-tier or of a
+  low_confidence_class, get `metadata.match_status = "uncertain"` (→ REVIEW);
+- with a VLM result, a VLM class tied to OCR by `ocr_ref_id` or text similarity (never
+  zone-only) classifies an orphan OCR box or confirms an uncertain detection of the same class.
+
+Legacy path — `FusionEngine.fuse(ocr, vlm, grounded_cards)`, OCR + VLM only. For most classes: SoM-style id match (VLM's own `ocr_ref_id`) first, then
 text similarity, then a position-zone-only fallback — applied uniformly to every VLM
 classification, not a restricted subset. content_card geometry comes exclusively from the VLM
 grounding call (no fallback); overlay_badge from deterministic OCR keyword+containment. Unmatched
@@ -142,7 +167,7 @@ Report includes summary, counts, detailed findings, confidence and visual eviden
 
 14. Security
 
-All processing stays local: Screenshot → OCR → VLM → JSON → Graph → Comparison → Report
+All processing stays local: Screenshot → Detector + OCR → (VLM) → JSON → Graph → Comparison → Report
 
 No cloud inference is required.
 
@@ -151,6 +176,7 @@ Python 3.11
 PaddlePaddle 3.2.0
 PaddleOCR
 Pillow
+Ultralytics YOLOv8 + PyTorch (separate venv, `UI_DETECTOR_PYTHON`)
 Ollama 0.33.3
 Qwen2.5-VL 7B
 NetworkX
@@ -160,6 +186,9 @@ standard Python libraries
 16. Target source layout
 text
 src/
+├── detector/
+│   ├── engine.py
+│   └── yolo_worker.py
 ├── ocr/
 │   ├── engine.py
 │   └── visualize.py

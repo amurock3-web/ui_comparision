@@ -7,6 +7,16 @@ model-agnostic
 deterministic comparison where possible
 benchmark-driven
 minimal infrastructure for POC
+1a. Detector design
+
+A YOLOv8s model fine-tuned on the 16-class taxonomy (`models/ui16_v1`, 83 train / 20 val
+images, val mAP50 0.877, mAP50-95 0.703) is the primary source of class + geometry. It is
+deterministic, which the VLM grounding was not. Inference settings (imgsz 1280, conf 0.25,
+iou 0.45) come from the bundle's `model_card.json`; `config/detector.yaml` only maps detector
+confidence to tiers (high ≥ 0.70, medium ≥ 0.40). Weak classes (`rank_number`, `text_input`,
+`logo`, 4-6 training instances each) are tagged `low_confidence_class` and treated as
+uncertain until the VLM confirms them.
+
 2. OCR design
 
 Input: PNG/JPG. PaddleOCR returns text, polygon/bbox and confidence.
@@ -22,6 +32,9 @@ Keep low-confidence OCR observations as evidence rather than deleting them immed
 
 3. VLM design
 
+The VLM is now a fallback: `main.py` calls it only when detector+OCR fusion leaves an
+`uncertain` element.
+
 The VLM receives the screenshot and useful OCR observations, plus the allowed taxonomy. Two
 separate, versioned prompts, not one: `v2_qwen2.5vl_classify_only` (class/text/description/
 approximate_location, no bbox — the default path) and `v3_qwen2.5vl_ground_content_cards`
@@ -35,6 +48,17 @@ Prompt rules: - do not invent elements - identify repeated elements independentl
 The prompt should be versioned.
 
 4. Fusion design
+
+Detector-first (`fuse_detections`, used by `main.py`): detections keep their class/bbox; each
+OCR box is assigned to the smallest detection containing its center; text inside a container
+class (content_card, cast_card, celebrity_card, navigation_bar) stays a child element, text
+inside any other class becomes that element's text. Orphan OCR text, low-tier detections and
+low_confidence_class detections are `uncertain`. The VLM result, when present, classifies
+orphan OCR boxes and confirms uncertain detections — only via `ocr_ref_id` or text similarity,
+never zone-only.
+
+The rest of this section describes the legacy OCR+VLM path (`fuse`), kept for reference.
+
 
 Real geometry comes from OCR wherever possible — the VLM's own per-element bbox output was found
 non-deterministic across repeated calls, disqualifying it for a tool whose job is detecting real
@@ -176,10 +200,12 @@ Record: - model - image - resolution - runtime - element count - confidence - ma
 
 16. POC technology set
 
-Python + PaddleOCR + Ollama/Qwen2.5-VL 7B + Pydantic + NetworkX + Pillow is sufficient. No
+Python + YOLOv8 (Ultralytics, separate venv) + PaddleOCR + Ollama/Qwen2.5-VL 7B + Pydantic + NetworkX + Pillow is sufficient. No
 database or large frontend is required. (Qwen3-VL 4B was the original candidate; rejected —
 see `memory.md`'s VLM benchmarking history.)
 
-17. Future hybrid system
+17. Hybrid system (implemented 2026-09-17)
 
-Possible production architecture: fast detector + OCR + local VLM fallback + graph comparison where the detector handles common UI components and the VLM handles uncertain/unseen components
+Detector + OCR + local VLM fallback + graph comparison: the detector handles common UI
+components and the VLM handles uncertain/unseen ones. Next: retrain with more examples of the
+weak classes, and measure the detector on screenshots outside its 103-image training set.

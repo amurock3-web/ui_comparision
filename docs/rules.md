@@ -86,7 +86,9 @@ Do not automatically remap/delete/change old annotations for this new POC. Use t
 
 Do: - a few screenshot pairs - OCR - local VLM - JSON - graph - comparison - report
 
-Do not initially: - clean all old annotations - process all 103 screens - train a VLM - train a detector - build Neo4j - build a large frontend
+(Training a detector was lifted 2026-09-17: the ui16_v1 YOLO model is part of the pipeline.)
+
+Do not initially: - clean all old annotations - process all 103 screens - train a VLM - build Neo4j - build a large frontend
 
 13. Hardware
 
