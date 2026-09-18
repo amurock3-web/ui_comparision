@@ -187,6 +187,39 @@ template and a new response parser (mirroring `ground_content_cards_experimental
 not just a different model string. Revisit if: a working GGUF/Ollama-compatible build appears, or
 grounding quality becomes enough of a blocker to justify the `transformers` + GPU-box detour.
 
+## OCR text accuracy vs APK ground truth — 2026-09-18
+
+`scripts/calibrate_text_tolerance.py` measures PaddleOCR's text accuracy against the literal
+strings the app rendered, using the six `uiautomator dump` XML files in
+`SunNXT-UI-Metadata/apk_analysis/window_xml/` as the oracle (they carry exact `bounds` plus the
+real `text`). OCR output is cached in `output/ocr/calibration/`, so re-runs are instant.
+
+**Result — static chrome (the only text E1 compares): 28 exact, 0 slips.** PaddleOCR made no
+character errors at all on tabs, section titles and buttons. Dynamic content: 36 exact, 4 slips,
+and all four are *truncations* of long strings (`'Prabhu Deva'` → `'Prabhu D'`), not misreads.
+
+**Consequence: `differ.py`'s `_within_one_edit` REVIEW band was left unchanged.** The measurement
+says it almost never fires, and when it does it downgrades FAIL → REVIEW (a human still sees the
+finding), so it is not masking defects. 28 samples from one app on one OCR engine is too thin to
+justify retuning a verdict threshold. Revisit if a real production-vs-client run produces false
+text FAILs.
+
+**Important limitation of these XML dumps — read before using them as training labels.** They
+were taken without a visibility flag (attributes are `bounds`, `class`, `text`, `resource-id`,
+`clickable`, … — there is no `visible-to-user`), and `uiautomator dump` reports views that are
+laid out but not drawn. The app keeps its floating "Movies / Live TV / Free / More" tab bar in the
+hierarchy at fixed bounds on *every* screen, so on ss017 (the Profile screen) the hidden "Live TV"
+node sits exactly over the visible "Version : 4.1.110". 4 of 47 static strings and 17 of 92
+dynamic ones are such ghosts; `classify()` in the script filters them by rejecting a match further
+than half the longer string. ss005 additionally shows a consistent one-row vertical offset —
+its XML was captured at a different scroll position than the screenshot.
+
+Net: **the constant nav-bar geometry across screens is partly an artifact, not a feature** — the
+same view objects persist whether or not they are drawn. Any future capture should record
+visibility (`uiautomator dump --compressed`, or a dump tool that emits `visible-to-user`) and be
+taken at the same scroll position as the screenshot, or XML-derived boxes will teach the detector
+to predict elements that are not on screen.
+
 ## OCR benchmarking (Phase 1) — history
 
 Test image: `input/production/ss012.png` (1080 × 2400).
