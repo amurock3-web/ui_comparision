@@ -62,6 +62,16 @@ The code is bind-mounted and never copied into the image. See [`docs/environment
 
 ## Usage
 
+### Web UI
+
+```bash
+python -m src.app
+```
+
+This opens `http://127.0.0.1:8765` in the browser. Drop the production screenshot and the client design into the two boxes, then press **Compare**. A progress bar steps through the stages (OCR takes about a minute per image on CPU). When it finishes, the page shows the verdict, the counts, the full report and a **Download PDF** button. The PDF is printed by headless Microsoft Edge; without Edge, use the browser's Save as PDF. The server only listens on localhost, and it runs one comparison at a time. Each run is kept in `output/app/<timestamp>/`: the inputs plus `report.json`, `.html`, `.png` and `.pdf`.
+
+### Command line
+
 ```bash
 python -m src.main \
   --production-image input/production/ss012.png --production-screen-id ss012 \
