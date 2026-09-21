@@ -1,4 +1,5 @@
 import json
+import sys
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -11,13 +12,14 @@ from src.graph.build import UIGraphBuilder
 from src.ocr.engine import OCREngine
 from src.vlm.engine import VLMEngine
 
-# Edit these two to point at the pair you want to diff. There's no real
-# client screenshot in the repo yet - drop one in input/client/ and update
-# CLIENT_IMAGE / CLIENT_SCREEN_ID before running.
-PRODUCTION_IMAGE = Path("input/production/ss012.png")
-PRODUCTION_SCREEN_ID = "ss012"
-CLIENT_IMAGE = Path("input/client/ss012.png")
-CLIENT_SCREEN_ID = "ss012"
+# The pair to diff, as two command-line arguments or the defaults below.
+# Screen ids follow the file names, so only the paths need changing. There's
+# no real client screenshot in the repo yet - drop one in input/client/.
+#   python -m scripts.run_comparison_test [production.png] [client.png]
+PRODUCTION_IMAGE = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
+CLIENT_IMAGE = Path(sys.argv[2] if len(sys.argv) > 2 else "input/client/ss012.png")
+PRODUCTION_SCREEN_ID = PRODUCTION_IMAGE.stem
+CLIENT_SCREEN_ID = CLIENT_IMAGE.stem
 
 OUTPUT_DIR = Path("output/comparison")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

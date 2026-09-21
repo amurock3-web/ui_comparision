@@ -92,8 +92,11 @@ ollama run qwen3-vl:4b "describe this in one word: test"   # Ollama responds
 
 The YOLO detector (`src/detector/`) needs ultralytics + torch, which must never be installed
 next to paddlepaddle-gpu. It runs in its own Python (the `UI_Detection_model_training` repo's
-venv), launched as a subprocess. Point to it with an environment variable; nothing loads a
-.env file:
+venv), launched as a subprocess.
+
+`config/detector.yaml`'s `python_path` holds the interpreter for this Windows checkout, so the
+scripts run with no shell setup. To use a different one — the Linux box, a moved venv — set the
+environment variable below, which takes precedence; nothing loads a .env file:
 
 bash
 # Windows PowerShell
@@ -102,9 +105,9 @@ $env:UI_DETECTOR_PYTHON = "C:\Users\pralhadraj.joshi\UI_Detection_model_training
 export UI_DETECTOR_PYTHON=/path/to/UI_Detection_model_training/.venv/bin/python
 
 The weights `models/ui16_v1/best.pt` are not in git; copy them from
-`UI_Detection_model_training/models/`. Without the variable, `main.py` stops with an error; set
-`engine: gt_stub` in `config/detector.yaml` to run with the hand labels instead (labelled
-screens only).
+`UI_Detection_model_training/models/`. If neither the variable nor `python_path` names a file
+that exists, `load_detector()` stops with an error naming both; set `engine: gt_stub` in
+`config/detector.yaml` to run with the hand labels instead (labelled screens only).
 
 10. Reproducibility note (rules.md §15)
 

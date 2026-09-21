@@ -1,3 +1,4 @@
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -16,8 +17,8 @@ from src.vlm.visualize import draw_vlm_result
 #     bbox_2d/[x1,y1,x2,y2] format. Not wired into fusion/main.py.
 MODE = "grounded_cards"
 
-IMAGE_PATH = Path("input/production/ss012.png")
-SCREEN_ID = "ss012"
+IMAGE_PATH = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
+SCREEN_ID = IMAGE_PATH.stem
 OUTPUT_DIR = Path("output/vlm")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

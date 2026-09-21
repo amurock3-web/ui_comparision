@@ -1,24 +1,32 @@
+"""Graph build on detector-first fusion, the same method as main.py:
+YOLO detector + OCR -> fuse_detections (no VLM) -> UIGraphBuilder.
+
+    python -m scripts.run_graph_test [image.png]
+
+The detector's separate interpreter comes from UI_DETECTOR_PYTHON
+(see config/detector.yaml and environment.md §9).
+"""
+import sys
 from collections import Counter
 from pathlib import Path
 
 from scripts._test_utils import next_test_number
+from src.detector.engine import load_detector
 from src.fusion.fuse import FusionEngine
 from src.graph.build import UIGraphBuilder
 from src.graph.visualize import draw_graph_result
 from src.ocr.engine import OCREngine
-from src.vlm.engine import VLMEngine
 
-IMAGE_PATH = Path("input/production/ss012.png")
-SCREEN_ID = "ss012"
+IMAGE_PATH = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
+SCREEN_ID = IMAGE_PATH.stem
 OUTPUT_DIR = Path("output/graph")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PREFIX = f"test{next_test_number(OUTPUT_DIR)}_{SCREEN_ID}_graph"
 
+detections = load_detector().detect(IMAGE_PATH)
 ocr_result = OCREngine(lang="en").run(IMAGE_PATH, screen_id=SCREEN_ID)
-vlm_result = VLMEngine().analyze(IMAGE_PATH, ocr_result, screen_id=SCREEN_ID)
-grounded_cards = VLMEngine().ground_content_cards_experimental(IMAGE_PATH, screen_id=SCREEN_ID)
-ui_doc = FusionEngine().fuse(ocr_result, vlm_result, grounded_cards, screen_id=SCREEN_ID, source="production")
+ui_doc = FusionEngine().fuse_detections(detections, ocr_result, screen_id=SCREEN_ID, source="production")
 
 graph = UIGraphBuilder().build(ui_doc)
 UIGraphBuilder.save_graph_json(graph, OUTPUT_DIR / f"{PREFIX}.json")

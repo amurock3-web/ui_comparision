@@ -1,8 +1,11 @@
 """Fusion only, same method as main.py: YOLO detector + OCR -> fuse_detections (no VLM).
 
-    $env:UI_DETECTOR_PYTHON = "C:\\Users\\pralhadraj.joshi\\UI_Detection_model_training\\.venv\\Scripts\\python.exe"
     python -m scripts.run_fusion_test
+
+The detector's separate interpreter comes from config/detector.yaml's
+python_path; set UI_DETECTOR_PYTHON to override it on another machine.
 """
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -12,8 +15,8 @@ from src.fusion.fuse import FusionEngine
 from src.fusion.visualize import draw_fusion_result
 from src.ocr.engine import OCREngine
 
-IMAGE_PATH = Path("input/production/ss012.png")
-SCREEN_ID = "ss012"
+IMAGE_PATH = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss031.png")
+SCREEN_ID = IMAGE_PATH.stem
 OUTPUT_DIR = Path("output/fusion")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

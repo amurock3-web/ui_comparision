@@ -1,5 +1,13 @@
 import re
+import sys
 from pathlib import Path
+
+# Every run_*_test.py prints OCR text, and OCR on these screenshots returns
+# Tamil script, ₹ and the occasional stray CJK glyph. The Windows console is
+# cp1252, so an un-encodable character kills the script *after* the real work
+# is done and the JSON is already saved. Done on import because all six
+# scripts import this module; there is no other shared entry point.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def next_test_number(output_dir: Path) -> int:

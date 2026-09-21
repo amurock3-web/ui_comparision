@@ -40,9 +40,9 @@ the 16-class taxonomy (bundle `models/ui16_v1/`: `best.pt`, `model_card.json`,
 confidence for every element and is deterministic (same image → identical boxes).
 
 Two engines behind `load_detector().detect(image) -> list[UIElement]`:
-- `yolo` (default): runs `best.pt` via `src/detector/yolo_worker.py` in a separate Python
-  named by `UI_DETECTOR_PYTHON`, because ultralytics/torch must not share an environment
-  with paddlepaddle-gpu.
+- `yolo` (default): runs `best.pt` via `src/detector/yolo_worker.py` in a separate Python —
+  `config/detector.yaml`'s `python_path`, overridden by `UI_DETECTOR_PYTHON` where it is set —
+  because ultralytics/torch must not share an environment with paddlepaddle-gpu.
 - `gt_stub`: replays the hand labels. A perfect detector for the 103 labelled screens, so a
   bug seen with it is a pipeline bug.
 
