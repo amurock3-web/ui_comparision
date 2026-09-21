@@ -1,6 +1,6 @@
 """Fusion only, same method as main.py: YOLO detector + OCR -> fuse_detections (no VLM).
 
-    python -m scripts.run_fusion_test
+    python -m scripts.run_fusion
 
 The detector's separate interpreter comes from config/detector.yaml's
 python_path; set UI_DETECTOR_PYTHON to override it on another machine.

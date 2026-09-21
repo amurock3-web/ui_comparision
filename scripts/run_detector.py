@@ -1,7 +1,7 @@
 """Detector only (no OCR, no VLM): detect one screenshot, save JSON + boxes drawn on the image.
 
     $env:UI_DETECTOR_PYTHON = "C:\\Users\\pralhadraj.joshi\\UI_Detection_model_training\\.venv\\Scripts\\python.exe"
-    python -m scripts.run_detector_test [image_path]
+    python -m scripts.run_detector [image_path]
 """
 import sys
 from collections import Counter

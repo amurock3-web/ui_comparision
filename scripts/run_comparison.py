@@ -15,7 +15,7 @@ from src.vlm.engine import VLMEngine
 # The pair to diff, as two command-line arguments or the defaults below.
 # Screen ids follow the file names, so only the paths need changing. There's
 # no real client screenshot in the repo yet - drop one in input/client/.
-#   python -m scripts.run_comparison_test [production.png] [client.png]
+#   python -m scripts.run_comparison [production.png] [client.png]
 PRODUCTION_IMAGE = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
 CLIENT_IMAGE = Path(sys.argv[2] if len(sys.argv) > 2 else "input/client/ss012.png")
 PRODUCTION_SCREEN_ID = PRODUCTION_IMAGE.stem

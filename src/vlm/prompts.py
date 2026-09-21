@@ -3,7 +3,7 @@ Versioned VLM prompt templates (design.md §3: "the prompt should be
 versioned").
 
 Taxonomy is loaded from config/classes.json at render time rather than
-hardcoded in the template string — src/test_vlm.py hand-typed the now-
+hardcoded in the template string — the old ad-hoc test_vlm.py script hand-typed the now-
 superseded 22-class list directly into its prompt, which is exactly the
 kind of drift this avoids.
 """

@@ -1,7 +1,7 @@
 """Graph build on detector-first fusion, the same method as main.py:
 YOLO detector + OCR -> fuse_detections (no VLM) -> UIGraphBuilder.
 
-    python -m scripts.run_graph_test [image.png]
+    python -m scripts.run_graph [image.png]
 
 The detector's separate interpreter comes from UI_DETECTOR_PYTHON
 (see config/detector.yaml and environment.md §9).

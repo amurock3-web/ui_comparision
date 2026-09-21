@@ -12,3 +12,7 @@ input/
 
 # Detector weights - copied by hand from UI_Detection_model_training, never committed
 *.pt
+
+.pytest_cache/
+graphify-out/
+.claude/

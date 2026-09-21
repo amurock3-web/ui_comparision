@@ -2,7 +2,7 @@
 
 **This is the single source of truth for current project state.** `rules.md` holds durable
 constraints, `architecture.md`/`design.md` hold stable technical design, `environment.md` holds
-the infra spec, `prd_section7_update.md` holds the locked taxonomy — none of those four track
+the infra spec, `archive/prd_section7_update.md` holds the locked taxonomy — none of those four track
 day-to-day progress anymore. This file does. Update it whenever phase status, environment, or
 the next task changes; do not let a second copy of this table grow anywhere else.
 
@@ -238,8 +238,8 @@ only distinguishes top/middle/bottom, which can't address a 4th row. Led to a fu
    `_find_row_anchors` (the grid-inference code) deleted entirely. `FusionEngine.fuse()` now
    requires a `grounded_cards` argument (a `VLMGroundedResult` from
    `ground_content_cards_experimental()`) — no fallback. Every caller of `fuse()` had to be
-   updated to call the grounding function first: `main.py`, `run_comparison_test.py`,
-   `run_fusion_test.py`, `run_graph_test.py` were fixed; **`tests/test_fusion.py`'s 14 call sites
+   updated to call the grounding function first: `main.py`, `run_comparison.py`,
+   `run_fusion.py`, `run_graph.py` were fixed; **`tests/test_fusion.py`'s 14 call sites
    were not** (still broken, explicitly deferred).
 2. **Matching generalized to every VLM class.** The `TEXT_MATCHABLE_CLASSES` allowlist (which
    restricted SoM-id/text-similarity/zone-fallback matching to ~10 classes) was removed —
@@ -276,7 +276,7 @@ parsing alone. Left for a future session to decide on.
 convention (colour-by-confidence-tier boxes, thin gray box for unclassified nodes). Draws only
 `CONTAINS` edges by default — every other relationship type is generated for every sibling pair
 (design.md §6) and renders as unreadable clutter at typical node counts; pass
-`relationships=(...)` for more. Wired into `scripts/run_graph_test.py`.
+`relationships=(...)` for more. Wired into `scripts/run_graph.py`.
 
 **Useful pattern discovered while testing this:** graph building and visualization need only a
 fused `UIDocument` — no OCR/VLM calls. For iterating on `build.py`/`visualize.py` against a screen
