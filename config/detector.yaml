@@ -17,6 +17,8 @@ bundle: models/ui16_v1
 # variable UI_DETECTOR_PYTHON (set it in the shell; nothing loads .env), e.g.
 #   PowerShell: $env:UI_DETECTOR_PYTHON = "C:\Users\pralhadraj.joshi\UI_Detection_model_training\.venv\Scripts\python.exe"
 python_env_var: UI_DETECTOR_PYTHON
+# Fallback when the variable is unset (this Windows checkout's interpreter).
+python_path: C:\Users\pralhadraj.joshi\UI_Detection_model_training\.venv\Scripts\python.exe
 
 # Detector confidence -> UIElement.confidence_tier. conf/iou for inference
 # itself come from the bundle's model_card.json, never from here.

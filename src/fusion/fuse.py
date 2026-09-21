@@ -503,12 +503,16 @@ class FusionEngine:
           A low-tier container never hosts text: on ss012 a false 0.32
           content_card over the floating tab bar was swallowing the tab
           labels as "dynamic" card text, hiding them from comparison.
+        - A tab_item holding >= 2 side-by-side OCR words is an unsplit tab
+          bar: it becomes a navigation_bar (metadata.split_from) and each
+          word a child tab_item.
+        - Detections wholly inside the status-bar band are ignored="status_bar".
         - OCR text inside no detection is kept as evidence, marked
           match_status="uncertain" (rules.md §10).
         - Detections of a low_confidence_class, or in the "low" tier, are
           also marked uncertain, so differ reports them as REVIEW - unless a
           low-tier one lies mostly inside a more confident detection of
-          another class (DUPLICATE_INSIDE_FRACTION): then it is tagged
+          another, non-container class (DUPLICATE_INSIDE_FRACTION): then it is tagged
           ignored="overlapped_by_higher_confidence" (kept, never compared).
         - vlm_result is optional; main.py runs the VLM only when something
           came out uncertain. A VLM classification tied to OCR by som_id
@@ -530,9 +534,20 @@ class FusionEngine:
         for d in dets:
             if d.confidence_tier == "low" and any(
                     o.class_ != d.class_ and o.confidence > d.confidence
+                    # A badge on a card lies inside it by design; only a
+                    # non-container box can make a weaker one a duplicate
+                    # (sunnxt_test_ss lost a 0.34 "Free" badge to its card).
+                    and o.class_ not in CONTAINER_CLASSES
                     and _inside_fraction(d.bbox, o.bbox) >= DUPLICATE_INSIDE_FRACTION for o in dets):
                 d.metadata.pop("match_status", None)
                 d.metadata["ignored"] = "overlapped_by_higher_confidence"
+            # §H, same band as the orphan-OCR rule below: the detector does box
+            # status-bar text on some apps (clock, battery, a notification).
+            # Whole box inside the band, not just its centre: ss012's top-row
+            # cards peek out under the status bar with centres at y~73 < 96.
+            if d.bbox[1] + d.bbox[3] <= self.status_bar_height_norm * H:
+                d.metadata.pop("match_status", None)
+                d.metadata["ignored"] = "status_bar"
 
         host_of = {}  # ocr id -> smallest detection containing its center
         for ocr_el in ocr_result.elements:
@@ -541,6 +556,21 @@ class FusionEngine:
             if hosts:
                 host_of[ocr_el.id] = min(hosts, key=lambda d: (d.class_ in CONTAINER_CLASSES,
                                                                d.bbox[2] * d.bbox[3]))
+
+        # One tab_item box over several side-by-side words is a tab bar the
+        # detector did not split (the "TV | Movies | Sports" pill). Hosts are
+        # decided above, while it is still a non-container tab_item, so the
+        # cards under it cannot claim its words; from here it is a
+        # navigation_bar and each word becomes a child tab_item below.
+        for d in dets:
+            if d.class_ != "tab_item":
+                continue
+            words = sorted((o for o in ocr_result.elements if host_of.get(o.id) is d),
+                           key=lambda o: o.bbox[0])
+            if len(words) >= 2 and all(a.bbox[0] + a.bbox[2] <= b.bbox[0]
+                                       for a, b in zip(words, words[1:])):
+                d.class_ = "navigation_bar"
+                d.metadata["split_from"] = "tab_item"
 
         covered = {}  # detection id -> OCR boxes it takes (label text, or dropped poster text)
         for ocr_el in ocr_result.elements:
@@ -582,6 +612,9 @@ class FusionEngine:
                 vlm_el, method = vlm_class[ocr_el.id]
                 cls, el_source = vlm_el.class_, "fused"
                 metadata.update(vlm_id=vlm_el.id, match_method=method, bbox_source="ocr_exact")
+            elif host is not None and host.metadata.get("split_from") == "tab_item":
+                cls, el_source = "tab_item", "fused"
+                metadata["bbox_source"] = "ocr_exact"
             elif host is None and ocr_el.center[1] < self.status_bar_height_norm * H:
                 metadata["ignored"] = "status_bar"  # §H: clock/battery, never compared
             elif host is None:

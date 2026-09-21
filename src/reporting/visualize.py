@@ -18,12 +18,14 @@ DIFF_COLORS = {
 }
 
 
-def _draw_box(draw, el, color, label, font):
+def _draw_box(draw, el, color, label, font, width=4):
     if el is None or el.bbox is None:
         return
     x, y, w, h = el.bbox
     x1, y1, x2, y2 = int(x), int(y), int(x + w), int(y + h)
-    draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
+    draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
+    if not label:
+        return
     text_y = max(0, y1 - 18)
     text_bbox = draw.textbbox((x1, text_y), label, font=font)
     draw.rectangle(text_bbox, fill="black")
@@ -31,12 +33,17 @@ def _draw_box(draw, el, color, label, font):
 
 
 def draw_comparison_result(production_image_path, client_image_path, production_doc, client_doc,
-                            differences, output_path: Path):
+                            differences, output_path: Path, show_matches: bool = False):
     """Production | Client side by side. Only non-MATCH differences are
     outlined (colour keyed by DIFF_COLORS) and labeled with the
     difference type — MATCH pairs aren't drawn, the point is to
     spotlight what changed, not repeat the fusion/graph visualizations'
-    full-element dump."""
+    full-element dump.
+
+    show_matches=True (the HTML report) also draws every PASS pair, thin and
+    unlabelled: green when matched and compared, grey when skipped as dynamic
+    content or ignored. The reader then sees what was checked, not only what
+    failed, so an element the pipeline never saw stands out by its absence."""
     prod_img = Image.open(production_image_path).convert("RGB")
     client_img = Image.open(client_image_path).convert("RGB")
     prod_draw = ImageDraw.Draw(prod_img)
@@ -53,6 +60,10 @@ def draw_comparison_result(production_image_path, client_image_path, production_
     drawn = 0
     for d in differences:
         if d.verdict == "PASS":
+            if show_matches:
+                color = "#888888" if d.details.get("ignored") else "#22cc55"
+                _draw_box(prod_draw, prod_by_id.get(d.production_id), color, None, font, width=2)
+                _draw_box(client_draw, client_by_id.get(d.client_id), color, None, font, width=2)
             continue
         color = DIFF_COLORS.get(d.type, "white")
         _draw_box(prod_draw, prod_by_id.get(d.production_id), color, d.type, font)

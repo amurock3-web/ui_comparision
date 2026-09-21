@@ -45,8 +45,9 @@ class UIGraphBuilder:
     def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
         cfg = yaml.safe_load(Path(config_path).read_text()).get("graph", {})
         self.containment_min_overlap = cfg.get("containment_min_overlap", 0.9)
-        self.alignment_epsilon = cfg.get("alignment_epsilon_norm", 0.01)
+        self.alignment_epsilon = cfg.get("alignment_epsilon_norm", 0.02)
         self.adjacency_max_gap = cfg.get("adjacency_max_gap_norm", 0.05)
+        self.knn_k = cfg.get("knn_k", 5)
 
     def build(self, ui_document) -> "nx.MultiDiGraph":
         # MultiDiGraph, not DiGraph: two elements can be related in more
@@ -75,11 +76,20 @@ class UIGraphBuilder:
         # grid rule — see fusion/fuse.py). They're still nodes above, just
         # excluded from every geometry-based relationship below since
         # there's nothing to compare.
-        geo_elements = [el for el in elements if el.bbox is not None]
+        # Elements fusion marked `ignored` (status-bar text, a low-confidence
+        # box swallowed by a more confident one — test_cases §H) are excluded
+        # from every relationship for the same reason they are excluded from
+        # comparison: they are not part of the structure being compared. They
+        # stay as nodes so the record survives, exactly like a bbox=None
+        # element, but they must not contribute edges — otherwise the status
+        # bar clock becomes a sibling of real content and an ignored duplicate
+        # box adds a phantom CONTAINS to whatever it sits inside.
+        geo_elements = [el for el in elements
+                        if el.bbox is not None and not (el.metadata or {}).get("ignored")]
         ungrounded = len(elements) - len(geo_elements)
         if ungrounded:
-            print(f"[GRAPH] {ungrounded} element(s) have no geometry (classification-only) — "
-                  "added as nodes, no geometric edges.")
+            print(f"[GRAPH] {ungrounded} element(s) skipped for edges "
+                  "(no geometry, or ignored by fusion) — kept as nodes.")
 
         # CONTAINS: strictly larger element whose bbox covers most of the
         # smaller element's area. Skip self-pairs and near-identical boxes
@@ -122,9 +132,52 @@ class UIGraphBuilder:
         for siblings in groups.values():
             self._add_spatial_edges(graph, siblings, W, H)
 
+        if self.knn_k:
+            self._add_near_edges(graph, geo_elements)
+
         print(f"[GRAPH] Done - {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges.")
 
         return graph
+
+    def _add_near_edges(self, graph, geo_elements):
+        """Top-K nearest neighbours, per graph_paper.pdf §3.2.
+
+        Distance is Euclidean over *both* bbox corners, so two boxes at the
+        same centre but different sizes are not treated as co-located:
+
+            sqrt((x1-x1')^2 + (y1-y1')^2 + (x2-x2')^2 + (y2-y2')^2)
+
+        Unlike ALIGNED_WITH / ABOVE / LEFT_OF this has no threshold, so
+        detector jitter cannot silently drop a relationship — it only ever
+        reorders neighbours that were already near-ties. The paper's graph is
+        undirected; edges are added both ways here so traversal works from
+        either end, deduplicated because K-nearest is not symmetric (a can be
+        in b's top K without b being in a's).
+        """
+        def corners(el):
+            x, y, w, h = el.bbox
+            return x, y, x + w, y + h
+
+        pairs = set()
+        for a in geo_elements:
+            ax1, ay1, ax2, ay2 = corners(a)
+            distances = []
+            for b in geo_elements:
+                if a.id == b.id:
+                    continue
+                bx1, by1, bx2, by2 = corners(b)
+                distances.append((
+                    ((ax1 - bx1) ** 2 + (ay1 - by1) ** 2
+                     + (ax2 - bx2) ** 2 + (ay2 - by2) ** 2) ** 0.5,
+                    b.id,
+                ))
+            distances.sort()
+            for _, neighbor_id in distances[: self.knn_k]:
+                pairs.add(tuple(sorted((a.id, neighbor_id))))
+
+        for u, v in pairs:
+            graph.add_edge(u, v, relationship="NEAR")
+            graph.add_edge(v, u, relationship="NEAR")
 
     def _add_spatial_edges(self, graph, siblings, W, H):
         for i, a in enumerate(siblings):

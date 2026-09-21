@@ -10,10 +10,77 @@ src/reporting/visualize.py.
 
 Screen verdict: any Critical/Major FAIL → FAIL; else any REVIEW → REVIEW;
 else PASS (Minor FAILs are listed as warnings).
+
+Each finding carries the test-case id it belongs to (spec_id), and the
+report lists every test case in docs/test_cases_pass_fail.md as checked or
+not built (coverage), so a PASS reads as "passed the checks we have", never
+"the screen is fine". `confidence` counts, per side, what the pipeline was
+unsure of or skipped: a verdict on a shaky extraction is a weak verdict.
 """
 
 import json
+import re
 from pathlib import Path
+
+SPEC_PATH = Path(__file__).resolve().parents[2] / "docs" / "test_cases_pass_fail.md"
+
+SPEC_BY_TYPE = {
+    "MISSING_IN_PRODUCTION": "B1",
+    "EXTRA_IN_PRODUCTION": "B2",
+    "CLASS_DIFFERENCE": "C4",
+    "TEXT_DIFFERENCE": "E1",
+    "POSITION_DIFFERENCE": "C1",
+    "SIZE_DIFFERENCE": "C2",
+    "STRUCTURAL_DIFFERENCE": "graph",  # no spec row; the matcher's context hint
+}
+# Test cases src/comparison/differ.py implements. Keep in step with its docstring.
+IMPLEMENTED = {"B1", "B2", "B9", "C1", "C2", "C4", "E1"}
+RULES = [("H", "Ignore list (poster art, status bar, dynamic text)"),
+         ("I", "Uncertainty -> REVIEW (never silent PASS)")]
+
+
+def spec_id(difference, element) -> str:
+    """Test-case id for one difference; an unmatched card is B9, not B1/B2."""
+    if (difference.type in ("MISSING_IN_PRODUCTION", "EXTRA_IN_PRODUCTION")
+            and element is not None and element.class_ == "content_card"):
+        return "B9"
+    return SPEC_BY_TYPE.get(difference.type, difference.type)
+
+
+def load_spec(path: Path = SPEC_PATH) -> list:
+    """[(id, check)] from the spec's tables: every row starting "| A1 | ...". """
+    rows = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\|\s*([A-G]\d)\s*\|\s*([^|]+?)\s*\|", line)
+        if m:
+            rows.append((m.group(1), m.group(2)))
+    return rows
+
+
+def coverage(findings) -> list:
+    """Every spec test case: checked (with its worst verdict here) or not built."""
+    worst = {}
+    rank = {"PASS": 0, "REVIEW": 1, "FAIL": 2}
+    for f in findings:
+        if rank[f["verdict"]] > rank.get(worst.get(f["spec_id"]), -1):
+            worst[f["spec_id"]] = f["verdict"]
+    rows = [{"id": i, "check": check,
+             "status": "checked" if i in IMPLEMENTED else "not built",
+             "result": worst.get(i, "PASS") if i in IMPLEMENTED else None}
+            for i, check in load_spec()]
+    rows += [{"id": i, "check": check, "status": "applied", "result": None} for i, check in RULES]
+    return rows
+
+
+def confidence(doc) -> dict:
+    els = doc.elements
+    return {
+        "elements": len(els),
+        "uncertain": sum(1 for e in els if e.metadata.get("match_status") == "uncertain"),
+        "ignored": sum(1 for e in els if e.metadata.get("ignored")),
+        "low_confidence": sum(1 for e in els if e.confidence_tier == "low"),
+        "unclassified": sum(1 for e in els if e.class_ is None),
+    }
 
 
 def screen_verdict(differences) -> str:
@@ -46,6 +113,7 @@ class ReportGenerator:
             reference = c or p
             findings.append({
                 "type": d.type,
+                "spec_id": spec_id(d, reference),
                 "verdict": d.verdict,
                 "severity": d.severity,
                 "production_id": d.production_id,
@@ -62,6 +130,8 @@ class ReportGenerator:
             "similarity_percent": similarity,
             "summary": {"total_compared": total, **counts},
             "findings": findings,
+            "coverage": coverage(findings),
+            "confidence": {"production": confidence(production_doc), "client": confidence(client_doc)},
         }
 
     @staticmethod

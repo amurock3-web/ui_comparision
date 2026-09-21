@@ -79,5 +79,33 @@ fusion:
 
 graph:
   containment_min_overlap: 0.9
-  alignment_epsilon_norm: 0.01
+  # Was 0.01 (10.8px at 1080 wide), which sat *inside* the detector's own
+  # noise: on ss031 the left card column spans x=9.1..21.6, so a 12.5px
+  # jitter split one column into two alignment groups, and el_0004 came out
+  # ALIGNED_WITH exactly one of its three column-mates (10.1px) but not the
+  # other two (11.8, 12.5px). 0.02 = 21.6px clears the measured jitter.
+  alignment_epsilon_norm: 0.02
   adjacency_max_gap_norm: 0.05
+  # Layout-tree builder (src/graph/layout.py): two boxes share a row/column
+  # band when their spans overlap by at least this fraction of the shorter.
+  band_min_overlap: 0.5
+  # Layout-tree builder: an element within this distance (x image width) of
+  # the content edge or of a navigation_bar / floating overlay is marked
+  # `clipped` (cut off by scroll position). 0.005 of 1080px = ~5px.
+  edge_margin_norm: 0.005
+  # Layout-tree builder: fallback parent when nothing covers an element at
+  # containment_min_overlap. Badges overhanging a card sit 85-86% inside it
+  # (sunnxt_test_ss); floating pills overlap a card by < 50%, so stay out.
+  loose_containment_overlap: 0.75
+  # Layout-tree builder: a child covering >= 2 siblings, each by at least
+  # this share of the smaller box, is a floating overlay (e.g. a chip bar
+  # over a carousel), not a member of their row. The ss031 nav bar's 1px
+  # overlap with the last card row is far below it.
+  float_min_overlap: 0.1
+  # NEAR edges: each node linked to its K nearest neighbours by Euclidean
+  # distance over both bbox corners (graph_paper.pdf §3.2). Threshold-free,
+  # so unlike ALIGNED_WITH it cannot be defeated by detector jitter. The
+  # paper tunes K=6 for desktop and K=5 for mobile; these screens are mobile.
+  # 0 disables. Nothing consumes NEAR yet - it is the substrate for the
+  # paper's recursive neighbour matching (§3.3).
+  knn_k: 5

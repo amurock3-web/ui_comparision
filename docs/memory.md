@@ -11,7 +11,8 @@ decide — PASS / REVIEW / FAIL per check, Critical/Major/Minor severity, a scre
 ignore list for dynamic content. It treats the **client design as the reference** and production
 as the thing under test. Thresholds there are proposed defaults, not confirmed by the manager.
 
-*Last verified against the actual code tree: 2026-09-17 (detector integration).*
+*Last verified against the actual code tree: 2026-09-18 (OCR text calibration, detector Python
+fallback, per-script screen ids, graph NEAR edges + alignment epsilon).*
 
 ## Project identity
 
@@ -91,7 +92,8 @@ current tuning, not TODOs.
   on the 103 labelled screens (83 train / 20 val). Val mAP50 0.877, mAP50-95 0.703. Weak
   classes: `rank_number` (0.62, 4 instances), `button` (0.72), `icon` (0.70),
   `metadata_text` (0.71); `rank_number`/`text_input`/`logo` are flagged `low_confidence_class`.
-- **Runs in its own Python** (`UI_DETECTOR_PYTHON`, see `environment.md` §9) because
+- **Runs in its own Python** (`config/detector.yaml`'s `python_path`, overridden by
+  `UI_DETECTOR_PYTHON`; see `environment.md` §9) because
   ultralytics/torch must not share an environment with paddle. `config/detector.yaml`
   `engine: yolo` (default) or `gt_stub` (hand labels, labelled screens only).
 - **New `main.py` flow per screen:** detector → OCR → `fuse_detections(dets, ocr)`; only with
@@ -137,7 +139,20 @@ current tuning, not TODOs.
     (missed or icon at 0.28); a "Dolby Vision" tile called overlay_badge; a poster called
     celebrity_card; the X close icon on the language picker missed; the floating tab bar only
     0.51 when it overlaps a poster.
-- **Not yet done:** a full `main.py` run (needs OCR); retraining with the weak cases above.
+- **Detector + OCR fusion ran end to end on 2026-09-18** (`python -m scripts.run_fusion`,
+  `input/production/ss031.png`, exit 0, `output/fusion/test13_ss031_fusion.*`). 34 detections +
+  56 OCR observations → **36 elements, 0 uncertain**, 3 ignored (status bar `3:55`/`A`, plus a
+  0.34 `4K` badge dropped as `overlapped_by_higher_confidence`). Classes: content_card 12,
+  overlay_badge 13, tab_item 7, navigation_bar 1, icon 1. Only the four complete poster rows
+  became cards; the partially cut-off bottom row got none. ss031 is one of the 103 labelled
+  screens, so this is not an unseen-screen result.
+  Text noise worth knowing before text comparison is trusted: `'-inSUN NXT SHORTS'`,
+  `'SUN NT Home'` (logo glyph merged into the tab label), a badge read as `'W'`, and a 0.45
+  `icon` whose text is the CJK glyph `个`. None were flagged `uncertain`, and `tab_item` *is* in
+  `static_text_classes`, so `'SUN NT Home'` would raise a real TEXT_DIFFERENCE against a clean
+  client render.
+- **Not yet done:** a full `main.py` run (fusion alone is now proven; the comparison half still
+  needs a client screenshot); retraining with the weak cases above.
   `differ.py` still has the `vlm_grounded` bands, used only by the legacy `fuse()` path.
 
 ## VLM benchmarking (Phase 2) — history
@@ -282,8 +297,20 @@ convention (colour-by-confidence-tier boxes, thin gray box for unclassified node
 fused `UIDocument` — no OCR/VLM calls. For iterating on `build.py`/`visualize.py` against a screen
 already processed once, reconstruct `OCRResult`/`VLMResult`/`VLMGroundedResult` from the saved
 JSON in `output/{ocr,vlm}/` instead of re-running the full (15-20 minute) pipeline. Runs in well
-under a second. No permanent script for this exists yet — done ad hoc in a scratchpad script so
-far.
+under a second. Since 2026-09-18 this is a real script, `scripts/build_graph_from_fusion.py`
+(newest `output/fusion/*.json`, or a given one, plus optional relationship names) →
+`output/graph/testN_<screen>_graph.json`, `_graph_diagram.png` (new `draw_graph_diagram`, no
+screenshot) and `_graph_overlay.png` (when the screenshot can be found).
+
+**Graph changes 2026-09-18** (`src/graph/build.py`, `config/config.yaml` `graph:`):
+- `alignment_epsilon_norm` 0.01 → 0.02. 0.01 (10.8px at 1080 wide) was inside detector jitter:
+  ss031's left card column spans x=9.1..21.6, so one column split into two ALIGNED_WITH groups.
+- Elements fusion marked `ignored` (status bar, swallowed low-confidence boxes) stay as nodes
+  but get no edges, same as `bbox=None` elements.
+- New `NEAR` edges (`knn_k: 5`, 0 disables): each element linked both ways to its K nearest
+  neighbours by Euclidean distance over both bbox corners (`docs/graph_paper.pdf` §3.2; K=5 is
+  the paper's mobile value). Threshold-free, so jitter cannot drop them. **Nothing consumes NEAR
+  yet** — it is the substrate for the paper's §3.3 recursive neighbour matching.
 
 ## POC first run — 2026-09-07
 
@@ -331,8 +358,12 @@ D1, D2, E1). In priority order:
    and SSIM, no new dependency), then ORDER_DIFFERENCE for B3/B4 via existing `ORDERED_BEFORE` edges.
 7. Housekeeping: fix `tests/test_fusion.py`'s 12 failing legacy `fuse()` tests (they omit
    `grounded_cards`; still failing 2026-09-17); write `tests/test_reporting.py`.
-7a. Detector: run `main.py` end to end with `engine: yolo`; measure it on screenshots outside the
-   training set; collect more `rank_number`/`text_input`/`logo` examples and retrain.
+7a. Detector: ~~run the detector-first pipeline end to end with `engine: yolo`~~ — done
+   2026-09-18 for detector + OCR + fusion (see Phase 10 above); `main.py`'s comparison half still
+   needs a client screenshot. Measure it on screenshots outside the training set; collect more
+   `rank_number`/`text_input`/`logo` examples and retrain.
+7b. Graph: element matching via `graph_paper.pdf` §3.3 recursive neighbour matching over the
+   `NEAR` edges (added 2026-09-18, unused so far).
 8. Later: the rest of the spec (B5-B9, C3, D3-D7, E2-E7, F, G). Zone-tie-break bug only if the
    mutation runs show it causing false B1/E1 fails.
 
@@ -355,3 +386,11 @@ D1, D2, E1). In priority order:
 12. For fast iteration on fusion/graph logic against an already-processed screen, reuse the saved
     JSON in `output/{ocr,vlm}/` instead of re-running OCR/VLM — see "Graph (Phase 4)" section
     above for the pattern.
+13. Every `scripts/run_*_test.py` takes the image as an optional argument and derives the screen
+    id from its file name (`SCREEN_ID = IMAGE_PATH.stem`), so a different screen needs no file
+    edit and output can no longer be misnamed:
+    `python -m scripts.run_fusion input/production/ss031.png`.
+    `run_comparison.py` takes the pair: `<production.png> <client.png>`.
+14. `scripts/_test_utils.py` forces UTF-8 on stdout when imported. OCR returns Tamil script, `₹`
+    and stray CJK glyphs, and the Windows console is cp1252 — without it a script dies on
+    `print` *after* the real work is saved. Keep that import in any new run script.
