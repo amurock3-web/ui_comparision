@@ -1,0 +1,86 @@
+# Class refiner experiment (design.md §18) — every path and threshold used by
+#   scripts/build_refiner_dataset.py, scripts/train_class_refiner.py,
+#   scripts/compare_yolo_vs_refiner.py
+# Outputs go to output/class_refiner/ only.
+
+paths:
+  # Label Studio export, renamed to ss001..ss103 (22-class YOLO labels).
+  # Lives in the detector repo; data/labelstudio_export/ does not exist here.
+  export_dir: C:/Users/pralhadraj.joshi/UI_Detection_model_training/data/renamed
+  images_subdir: images
+  labels_subdir: labels
+  classes_file: classes_22.txt
+  # Eye-confirmed per-box fixes the detector repo applies AFTER the 22->16
+  # remap (keys: image stem -> {1-based label line: 16-class name}). YOLO
+  # ui16_v1 was trained and validated on the corrected labels, so the
+  # YOLO-vs-refiner comparison is only fair if truth includes them.
+  corrections_file: C:/Users/pralhadraj.joshi/UI_Detection_model_training/config/label_corrections.yaml
+  apply_corrections: true
+  # YOLO ui16_v1 validation split (20 images, seed 42, model_card.json).
+  yolo_val_images_dir: C:/Users/pralhadraj.joshi/UI_Detection_model_training/ds/images/val
+  # Detector settings + weights bundle (engine must be yolo for the comparison).
+  detector_config: config/detector.yaml
+  output_dir: output/class_refiner
+
+# 22 -> 16 remap, prd_section7_update.md §7 (v2 taxonomy). Mapped by NAME.
+remap:
+  content_card: content_card
+  nav_item: tab_item
+  category_tab: tab_item
+  detail_tab: tab_item
+  carousel_filter: tab_item
+  badge: overlay_badge
+  episode_badge: overlay_badge
+  duration: overlay_badge
+  section_title: section_title
+  button: button
+  cast_card: cast_card
+  icon: icon
+  metadata_text: metadata_text
+  navigation_bar: navigation_bar
+  celebrity_card: celebrity_card
+  movie_title: title
+  series_title: title
+  description: description
+  search_bar: search_bar
+  rank_number: rank_number
+  text_input: text_input
+  logo: logo
+
+# 4 samples each: too few to learn (rules.md §19). Counted and reported, not trained on.
+exclude_from_training: [rank_number, text_input]
+
+# Artwork text is noise (architecture.md §4a): no OCR on these crops.
+card_classes: [content_card, cast_card, celebrity_card]
+
+confusable_group: [button, tab_item, overlay_badge, icon, metadata_text]
+
+ocr:
+  lang: en
+  crop_pad_px: 8
+  upscale_below_height_px: 48
+  upscale_factor: 2
+  regex:
+    episode: '\bS\s*\d+\s*[:\-.]?\s*E\s*\d+\b'
+    duration: '\b\d+\s*h(?:r|rs)?\s*\d*\s*m?(?:in|ins)?\b|\b\d+\s*(?:m|min|mins|minutes)\b'
+  badge_words: [free, new, premium]
+
+context:
+  # Same row: |cy_i - cy_j| <= row_center_tol * min(h_i, h_j)
+  # and max(h)/min(h) <= row_height_ratio.
+  row_center_tol: 0.5
+  row_height_ratio: 1.5
+  # Relative position inside the containing card: < 1/3 = top/left band,
+  # > 2/3 = bottom/right band.
+  card_band: 0.3333
+
+model:
+  cv_folds: 5
+  seed: 42
+  logreg: {C: 1.0, max_iter: 5000}
+  lightgbm: {n_estimators: 300, learning_rate: 0.05, num_leaves: 15, min_child_samples: 5}
+  calibration_bins: 10
+  top_weights_per_class: 10
+
+compare:
+  match_iou: 0.5

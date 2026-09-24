@@ -56,6 +56,31 @@ Technology: - PaddleOCR - PaddlePaddle 3.2.0 - PP-OCRv6 family - Pillow for imag
 
 Responsibilities: - text detection - text recognition - bbox/polygon - confidence - normalized coordinates
 
+## 4a. Detector-first targeted OCR (proposed 2026-09-21)
+
+Problem: full-screen OCR also reads text painted inside poster/card
+artwork, which is noise for comparison, and it forces a hard OCR↔box
+association step (the current fusion blocker).
+
+Proposal: run the detector first, then run OCR **only on crops of
+text-bearing classes**: `tab_item`, `section_title`, `button`, `title`,
+`metadata_text`, `description`, `overlay_badge`, `search_bar`
+(`text_input` if present). Skip OCR inside card artwork.
+
+Why OCR is still required: YOLO cannot read; the VLM hallucinates text
+(especially non-Latin scripts); `TEXT_DIFFERENCE` is a core difference
+type.
+
+Effects:
+- the text already belongs to the crop's element → association is
+  trivial, which largely removes the fusion blocker
+- artwork text is never read
+- fewer OCR calls on small regions
+
+Technical note: pad crops by a few pixels and upscale small crops
+(~2×) before PaddleOCR, otherwise recognition accuracy drops. Keep the
+OCR confidence and `confidence_tier` per crop.
+
 5. VLM engine
 
 Runtime: Ollama 0.33.3. Current model: qwen2.5vl:7b (qwen3-vl:4b was tried first and rejected —
@@ -215,8 +240,83 @@ src/
 ├── reporting/
 └── main.py
 
+Proposed additions (post-MVP, see rules.md §20):
+
+``` text
+src/
+├── fusion/class_refiner.py   # local class refiner (design.md §18)
+└── attributes/               # attribute extractors (design.md §21-22)
+    ├── color.py
+    ├── text_style.py
+    └── ...
+```
+
 Each pipeline stage that has real geometry to draw also has a `visualize.py`, following the same
 convention: colour-code by confidence tier, thick outline + labeled box for classified/grounded
 elements, thin unlabeled box for unclassified evidence kept per rules.md §10.
 
 Create modules incrementally; do not overbuild before the end-to-end POC works.
+
+## 17. Proposed target flow v2 (2026-09-21, not yet adopted)
+
+``` text
+Screenshot
+    ↓
+YOLO detector (visual classes, from UI_Detection_model_training bundle)
+    ↓
+Class refiner (optional, local; only for low-confidence / confusable boxes)
+    ↓
+Targeted crop OCR (text-bearing classes only, §4a)
+    ↓
+Rules (rank_number, text role, card style)  +  Attribute extractors
+    ↓
+Local VLM fallback (only for low-confidence / unseen components)
+    ↓
+UI JSON  →  UI Graph  →  Comparison  →  Report
+```
+
+This is the "fast detector + OCR + local VLM fallback" hybrid from
+design.md §17, made concrete. Raw evidence from every stage is kept in
+element `metadata` (§6).
+
+## 18. Class refiner (parked)
+
+A small local tabular classifier (logistic regression first, LightGBM
+if needed) that gives a second opinion on an element's class from
+geometry + OCR + context + YOLO output, returning calibrated class
+probabilities. Local replacement for the rejected cloud Jev idea
+(rules.md §18).
+
+- Training code: `UI_Detection_model_training` (it owns labels + remap)
+- Saved model (`.joblib`): shipped in the same bundle as YOLO weights
+- Inference: `ui_comparision/src/fusion/class_refiner.py`
+
+Details: design.md §18.
+
+## 19. Attribute extractors (parked)
+
+Deterministic modules (NumPy/Pillow, no ML) that measure properties of
+already-detected elements: color, text color/size, selected tab state,
+spacing/alignment, truncation, icon identity. They produce layer-2
+attributes (prd_section7_update.md, proposed v3 ontology) that the
+comparison engine compares. Details: design.md §21-22.
+
+## 20. Generalization to new clients / other OTT apps
+
+The system compares Production vs Client of the **same app**, so it
+does not need to "know" the app — it needs to detect generic components
+**consistently on both sides**. Consistent detector errors on both
+sides largely cancel out in a relative comparison.
+
+Generalization comes from (in order of impact):
+1. A generic, visual-first ontology (proposed v3)
+2. Training on a few screens from several OTT apps rather than many
+   screens from one (SunNXT only → overfits to one app)
+3. Local VLM fallback for low-confidence/unseen components (zero-shot)
+4. Per-client onboarding if needed: annotate 20-30 screens
+   (model-assisted), fine-tune
+
+Open question: what does "Client" input look like in practice? If
+clients provide **design mockups** (e.g. Figma exports) instead of real
+app screenshots, there is a domain gap (flat colors, placeholder
+images) that a detector trained on real screenshots may not handle.

@@ -68,6 +68,13 @@ Use: - class - text - position - size - bbox - IoU - normalized coordinates - sp
 
 Initial: MATCH, MISSING_IN_CLIENT, EXTRA_IN_CLIENT, CLASS_DIFFERENCE, TEXT_DIFFERENCE, POSITION_DIFFERENCE, SIZE_DIFFERENCE, GEOMETRY_DIFFERENCE, STRUCTURAL_DIFFERENCE, ORDER_DIFFERENCE, UNCERTAIN.
 
+**Proposed additions (2026-09-21, pending approval — not yet in use):**
+`COLOR_DIFFERENCE` (element or screen background/text color changed,
+measured as ΔE in CIELAB, see design.md §21) and
+`ATTRIBUTE_DIFFERENCE` (a layer-2 attribute changed, e.g. card style,
+card rank, selected tab, font size, truncation — see design.md §22).
+Add only after the MVP runs end-to-end.
+
 9. Coordinates
 
 Store: [x, y, width, height] and normalized: [x/W, y/H, width/W, height/H].
@@ -113,9 +120,60 @@ Record model, model tag/version, OCR config, VLM prompt version, image resolutio
 See `memory.md` — it is the single source of truth for phase status, environment, and the next
 task. Do not duplicate that table here; a second copy is how this section went stale before.
 
+-   Fusion: ACTIVE BLOCKER (OCR↔detection association); detector-first
+    targeted OCR proposed as simplification (architecture.md §4a)
+-   YOLO detector (separate repo `UI_Detection_model_training`): first
+    run `ui16_20260917_071603` DONE — mAP@50 0.877, mAP@50-95 0.703;
+    weak: button (recall 0.58), icon, metadata_text, rank_number
+
 17. Container discipline
 
 If working in the Docker/GPU environment: only work inside `ui_compare_v2` (the volume-mounted
 container). An earlier `ui_compare` container had no volume mount, was confirmed empty, and
 should not be used — anything installed in a container without a host volume mount is lost if
 that container is removed.
+
+## 18. External decision / classification APIs (decided 2026-09-21)
+
+TypeSafe **Jev** ("System One" decision model: typed answers +
+calibrated probabilities, no text generation) was evaluated as a class
+classifier for the UI ontology. **Not adopted**, because:
+
+1. It is a cloud API → violates §2. Sending only OCR text + bbox JSON
+   still sends data derived from Production/Client screenshots off the
+   machine.
+2. It is text/JSON-only (no image input). The hardest class splits
+   (e.g. `cast_card` vs `celebrity_card`) are visual.
+3. It returns no reasoning → conflicts with architecture.md §12
+   (deterministic/explainable decisions).
+
+The *idea* (a fast classifier that returns calibrated class
+probabilities) may be implemented **locally** as the class refiner
+(design.md §18). The same rejection applies to any similar cloud
+decision/classification service.
+
+## 19. Rules before learning for rare, context-defined classes
+
+When a class has very few labeled examples and is defined by context
+rather than appearance, prefer a deterministic rule over a learned
+class. Example: `rank_number` (4 samples) only appears in "Top 10"
+rows → derive it by rule (design.md §20), do not rely on the detector
+to learn it.
+
+## 20. Scope discipline for post-MVP features
+
+The following were discussed on 2026-09-21 and are **parked until the
+MVP runs end-to-end** (`one pair → detector/OCR/VLM → JSON → graph →
+comparison → report`):
+
+-   class refiner (design.md §18)
+-   ontology v3 / three-layer ontology (prd_section7_update.md)
+-   color detection and other attribute extractors (design.md §21-22)
+-   collecting data from other OTT apps (phases.md Phase 9)
+
+Exception: detector-first targeted OCR (architecture.md §4a) may be
+tried now because it directly addresses the current fusion blocker.
+
+Prioritize new checks by **how often that regression type appears in
+real QA tickets**, not by what is technically possible. Every new
+check needs its own synthetic test pair (design.md §23).

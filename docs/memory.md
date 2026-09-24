@@ -332,6 +332,15 @@ source of false positives for this comparison tool specifically — two runs of 
 can already disagree on classification — not something invented for this test; worth deciding how
 to handle (e.g. loosen the class score for known-similar classes, or improve prompt consistency).
 
+## Next immediate technical task
+
+(Updated 2026-09-21; the earlier "run OCR on GPU / resume qwen3-vl:4b"
+task is done — GPU OCR parity confirmed, qwen2.5vl:7b chosen.)
+
+Finish Phase 3 fusion (current blocker: OCR↔box association). Option
+under consideration: detector-first targeted crop OCR
+(architecture.md §4a). Then complete the MVP end-to-end on one pair.
+
 ## Next immediate task
 
 Re-prioritized 2026-09-17 around `test_cases_pass_fail.md` (its "v0 scope": A1, A3, B1, B2, C1,
@@ -394,3 +403,59 @@ D1, D2, E1). In priority order:
 14. `scripts/_test_utils.py` forces UTF-8 on stdout when imported. OCR returns Tamil script, `₹`
     and stray CJK glyphs, and the Windows console is cp1252 — without it a script dies on
     `print` *after* the real work is saved. Keep that import in any new run script.
+
+## Session log 2026-09-21 — decisions and proposals
+
+**Decided**
+- TypeSafe Jev (cloud decision model) not adopted — cloud, text-only,
+  no reasoning (rules.md §18). Local equivalent = class refiner.
+- Everything below is parked until the MVP runs end-to-end
+  (rules.md §20), except targeted OCR, which may help the fusion
+  blocker now.
+- New checks are prioritized by frequency in real QA tickets.
+
+**Proposed (pending approval)**
+- Class refiner: local logistic regression / LightGBM on geometry +
+  OCR + context (+ YOLO) features (design.md §18)
+- Detector-first targeted crop OCR (architecture.md §4a)
+- rank_number → rule-derived card attribute, not a class
+  (design.md §20)
+- Three-layer ontology v3 (prd_section7_update.md); v2 16 classes stay
+  locked for now
+- `COLOR_DIFFERENCE`, `ATTRIBUTE_DIFFERENCE` (rules.md §8); color via
+  CIELAB ΔE (design.md §21); other extractors backlog (design.md §22)
+- Synthetic test pairs for end-to-end validation (design.md §23)
+- Multi-app data + model-assisted labeling (phases.md Phase 9-10)
+
+**Open questions**
+- Do clients provide real app screenshots or design mockups?
+- Which regression types are most common in real QA tickets?
+
+## Class refiner experiment (design.md §18) — 2026-09-22
+
+Started ahead of the MVP by decision. Scripts only; outputs in `output/class_refiner/`.
+Config: `config/class_refiner.yaml` (22→16 remap + detector-repo `label_corrections.yaml`).
+Scripts: `build_refiner_dataset`, `train_class_refiner`, `compare_yolo_vs_refiner`,
+`refiner_progress` (live progress bar). Charts + `report.html` per run.
+
+**Data:** 2186 GT boxes / 103 images (export in `UI_Detection_model_training/data/renamed`).
+rank_number, text_input (4 each) excluded from training. Crop OCR on 1365 non-card boxes
+took ~85 min on CPU (~16 crops/min); cached in `ocr_cache.json`.
+
+**test1_logreg** — 5-fold GroupKFold by image, GT boxes, all 103 images: accuracy 0.710,
+ECE 0.067. Confusable group recall: button 0.70, tab_item 0.84, overlay_badge 0.80,
+icon 0.53, metadata_text 0.83. Cards collapse (content_card recall 0.50, 270 → celebrity_card):
+no OCR on cards + geometry-only features cannot separate card types.
+
+**test2_compare_logreg** — the fair test: YOLO ui16_v1 vs refiner on YOLO's 20 val images,
+refiner retrained on the other 83, refiner fed YOLO boxes + crop OCR. 375 matched boxes (IoU ≥ 0.5).
+- Correct class on matched boxes: YOLO 0.968, refiner 0.675. Confusable group: YOLO 0.953,
+  refiner 0.912. button: 0.792 both (24 matched, **7 more buttons YOLO never boxed**).
+- Refiner fixes YOLO 2, breaks YOLO 112 (mostly content_card → celebrity_card), both wrong 10.
+
+**Conclusion:** once YOLO boxes an element it almost always has the right class. The 0.58
+button recall is mostly *missed boxes*, which a class refiner cannot fix. Refiner not adopted
+as-is. Better levers for button: more button training data / check YOLO conf threshold
+on buttons. Caveats: 20 images, 24 buttons; YOLO best.pt was selected on these val images
+(slightly optimistic for YOLO).
+Feature gap found: duration regex misses `01:10:00` style (4 badges → description).
