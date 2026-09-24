@@ -44,7 +44,8 @@ client_doc.save_json(OUTPUT_DIR / f"test{N}_{PRODUCTION_SCREEN_ID}_client_fused.
 
 match_result = ElementMatcher().match(production_doc, client_doc, production_graph, client_graph)
 differences = DifferenceEngine().compare(
-    production_doc, client_doc, production_graph, client_graph, match_result
+    production_doc, client_doc, production_graph, client_graph, match_result,
+    production_image=PRODUCTION_IMAGE, client_image=CLIENT_IMAGE,
 )
 
 (OUTPUT_DIR / f"{PREFIX}.json").write_text(

@@ -30,17 +30,30 @@ from pathlib import Path
 SPEC_PATH = Path(__file__).resolve().parents[2] / "docs" / "test_cases_pass_fail.md"
 
 SPEC_BY_TYPE = {
+    "ORIENTATION_DIFFERENCE": "A1",
+    "BLANK_SCREEN": "A2",
+    "THEME_DIFFERENCE": "A3",
+    "SCALING_DIFFERENCE": "A5",
+    "COLOR_DIFFERENCE": "D1",
+    "BACKGROUND_COLOR_DIFFERENCE": "D2",
+    "BADGE_COLOR_DIFFERENCE": "D5",
+    "SECTION_ORDER_DIFFERENCE": "B3",
+    "TAB_ORDER_DIFFERENCE": "B4",
+    "ALIGNMENT_DIFFERENCE": "B5",
+    "CLIPPING_DIFFERENCE": "B8",
     "MISSING_IN_PRODUCTION": "B1",
     "EXTRA_IN_PRODUCTION": "B2",
     "CLASS_DIFFERENCE": "C4",
     "TEXT_DIFFERENCE": "E1",
+    "TEXT_STYLE_DIFFERENCE": "E3",  # same letters, different case or spacing
     "POSITION_DIFFERENCE": "C1",
     "GROUP_SHIFT": "C1",  # a whole panel moved; reported once, not per member
     "SIZE_DIFFERENCE": "C2",
     "STRUCTURAL_DIFFERENCE": "graph",  # no spec row; the matcher's context hint
 }
 # Test cases src/comparison/differ.py implements. Keep in step with its docstring.
-IMPLEMENTED = {"B1", "B2", "B9", "C1", "C2", "C4", "E1"}
+IMPLEMENTED = {"A1", "A2", "A3", "A5", "B1", "B2", "B3", "B4", "B5", "B8", "B9", "C1", "C2", "C4",
+               "D1", "D2", "D5", "E1", "E3"}
 RULES = [("H", "Ignore list (poster art, status bar, dynamic text)"),
          ("I", "Uncertainty -> REVIEW (never silent PASS)")]
 # Keys in report["summary"] that are not per-difference-type counts.

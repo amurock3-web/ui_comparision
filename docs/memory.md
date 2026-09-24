@@ -479,3 +479,137 @@ as-is. Better levers for button: more button training data / check YOLO conf thr
 on buttons. Caveats: 20 images, 24 buttons; YOLO best.pt was selected on these val images
 (slightly optimistic for YOLO).
 Feature gap found: duration regex misses `01:10:00` style (4 badges → description).
+
+## Phase 12 — matching fix (similarity metric + group shift) — 2026-09-24
+
+Driven by `docs/phase12_matching_fix_prompts.md`. Three separate causes were behind
+"FAIL, 0.0% similarity" on every real production-vs-client pair.
+
+**12.0 — fast iteration.** `scripts/rematch.py` re-runs matcher → differ → report from saved
+fused JSONs in ~1-2 s, no detector and no OCR (it never imports `src/pipeline.py`).
+`scripts/run_comparison.py` and `src/app.py` now save `*_production_fused.json` /
+`*_client_fused.json`. `UIDocument` stores no image path, so rematch resolves the screenshot from
+`--production-image`/`--client-image`, then a sibling `production_*`/`client_*` file, then
+`find_screenshot`. Same JSON twice = self-compare.
+
+**12.1 — the similarity number was arithmetically wrong.** It divided MATCH *records* by *all*
+Difference records, so one matched pair with three sub-findings counted as 0 matched and 3
+compared. Now: `matched_pairs` (distinct id pairs) over `matched_pairs + missing + extra`, with
+`clean_pairs`/`clean_percent` alongside and `total_compared` renamed `difference_records`.
+A pair whose every record is `ignored` (§H dynamic content) is excluded from the denominator by
+user decision — otherwise poster tiles inflate the similarity of a screen nobody checked.
+
+**12.2 — a whole panel moving was judged per element.** On the language pair the sheet sits
+~136 px lower in the client while the header behind it moved ~+21 px. Anchors (matched pairs with
+the same class and either text >= 0.9 or IoU >= 0.5) vote per layout-graph container; the shift is
+the median of the votes; still-unmatched elements are re-scored in a second pass with the
+production box moved back by *their* container's shift. New `GROUP_SHIFT` difference (spec C1)
+reports the move once; members are judged on the residual.
+
+Three things were got wrong first and are worth not repeating:
+1. Anchors were attributed only to their immediate container. The layout tree splits a panel into
+   rows of two, so every container fell below `min_anchors` and the walk-up found nothing. Anchors
+   now vote in every container above them. `min_anchors` is 2, not 3, for the same reason.
+2. Median absolute deviation was used as the agreement test. MAD tolerates up to half the votes
+   disagreeing, so the screen root accepted a sheet-wide shift while two header tabs voted
+   against, and those tabs got false position FAILs. Now outlier anchors are trimmed at
+   `max_spread_norm` and a quorum of survivors is required — which still lets a single member that
+   moved extra keep its own C1 finding.
+3. Excluding the screen root outright then killed recall (7 matches again), because the tree hangs
+   `Save` and the subtitle directly off the root. The root is allowed, but only as the last
+   resort: nearest container wins, so the header keeps its own +21 px.
+
+**Measured, `scripts/rematch` on the saved fused docs (2026-09-24):**
+
+| pair | before | after |
+|---|---|---|
+| sunnxt_prod_lang vs sunnxt_live_lang | FAIL 0.0%, 7 matches, 22 missing, 16 extra, 47 findings, 6 POSITION | FAIL **62.1%**, 18 matches, 7 missing, 4 extra, 20 findings, **1** POSITION, 3 GROUP_SHIFT |
+| sunnxt_prod vs sunnxt_live | FAIL 0.0%, ~11 matches | FAIL **50.0%**, 13 matches, 11 missing, 4 extra, 10 SIZE |
+| self-compare (same fused JSON twice) | PASS 100% | PASS 100%, 23 matches, only MATCH records |
+
+The language pair's GROUP_SHIFTs: `grp_0001` +15.8/+20.9 px (header, REVIEW), `screen`
++3.1/-136.2 px (10 members, FAIL), `grp_0004` -6.7/-139.3 px (sheet tabs, FAIL). The `screen` and
+`grp_0004` findings describe the same physical move at two levels — redundant but not wrong;
+suppressing a group whose shift equals its ancestor's is unfinished polish.
+
+`matching.group_shift.enabled: false` reproduces the pre-12.2 output and is covered by a test.
+
+**Tests:** `tests/test_reporting.py` rewritten (8 tests, real `UIElement`/`UIDocument` — the old
+`SimpleNamespace` fakes would have raised in `confidence()`), `tests/test_group_shift.py` new
+(8 tests). 39 pass across comparison/reporting/group_shift/schema. The suite still has **15
+pre-existing failures** (14 in `test_fusion.py`, 1 in `test_graph.py`) — confirmed present at HEAD
+with the Phase 12 changes stashed, so they are untouched by this work. The earlier note in this
+file saying 12 was an undercount.
+
+**Still open after this:** tab capitalisation (`SUN NXT` vs `SUNNXT`) needs text normalisation, not
+a threshold; `SIZE_DIFFERENCE` on small chrome is detector box wobble awaiting 12.3's pixel floor
+(needs `input/jitter/<screen>_a|_b` pairs, same screen same build seconds apart — not captured
+yet); OCR noise on the client side ("WORLDWIDE", "ONLV ON", "SLAILD") and a status-bar string
+leaking in as a `section_title` because `fusion.status_bar_height_norm` only ignores OCR text that
+lands in *no* detection; `STRUCTURAL_DIFFERENCE` fires on most matched pairs and remains a noise
+generator.
+
+## Phase 13 — noise reduction + 10 new checks — 2026-09-24
+
+Driven by a demo deadline. Coverage went **9 -> 19 of 41** spec checks, and the language pair's
+findings fell from 47 (this morning) to 16. Three agents wrote self-contained modules of pure
+functions with their own tests and touched no integration point; `differ.py`, `report.py`,
+`html_report.py` and `config.yaml` were wired up afterwards in one pass. That division worked —
+the Phase 12 lesson holds: delegate work that is specified in advance, keep measurement-driven
+work inline.
+
+**Noise (inline, measured on the saved fused docs):**
+- `STRUCTURAL_DIFFERENCE` now off by default (`comparison.report_structural_difference`). It has
+  no spec row and fired on 9 of 18 matched pairs; two screens with different element counts can
+  never share a graph neighbourhood, so it only restated B1/B2. Still available for debugging.
+- Case/spacing-only text differences are now **E3** (`TEXT_STYLE_DIFFERENCE`, REVIEW) instead of a
+  Major E1 FAIL. `SUN NXT` vs `SUNNXT` was the motivating case.
+- Dynamic-only matched pairs leave the similarity denominator (user decision).
+
+**New checks, all running on the real pairs:**
+- `src/comparison/screen_checks.py` — A1 orientation, A2 blank/broken, A3 theme, A5 scaling. Pure
+  image math, no detector. A2's `edge_density_min` and A3's `dark_luminance_max` are **not
+  calibrated against real screenshots**. A5 is the screen-level half only: "UI zoomed >15%" needs
+  matched element sizes, not canvas dimensions.
+- `src/comparison/color_checks.py` — D1 brand, D2 background, D5 badge, CIELAB ΔE2000, validated
+  against four Sharma/Wu/Dalal (2005) Table 1 reference pairs to 1e-3. D2 masks every detected
+  element before sampling, so a poster cannot be read as the background. **D4 is not claimed**:
+  which tab *should* be highlighted is structural, not a colour measurement.
+- `src/comparison/layout_checks.py` — B3 section order, B4 tab order, B5 alignment, B8 clipping,
+  read off the layout graph, which already carried all of it unused. B5 fires on how much an
+  alignment *loosened*, because the client's own `ALIGNED_WITH` clusters are built at
+  `alignment_epsilon_norm` 0.02, looser than B5's 1.5%.
+
+**Measured after all of it (`scripts/rematch`, no OCR):**
+
+| pair | verdict | similarity | findings |
+|---|---|---|---|
+| sunnxt_prod_lang vs sunnxt_live_lang | FAIL | 62.1% | 16 (was 47) |
+| sunnxt_prod vs sunnxt_live | FAIL | 50.0% | 10 SIZE, 12 COLOR, rest small |
+| self-compare | PASS | 100.0% | only MATCH records |
+
+Coverage on the language pair: A1,A2,A3,A5 PASS; B1 REVIEW; B2 FAIL; B3,B4 PASS; B5 FAIL;
+B8 PASS; B9 REVIEW; C1,C2 FAIL; C4 PASS; D1 FAIL; D2,D5 PASS; E1 PASS; E3 REVIEW.
+
+**A colour hazard found and left honest.** The home pair reports 12 D1 findings, production chrome
+sampling at rgb(99-111) against the client's rgb(37-45). A guard was added
+(`_shows_artwork_through`) that skips D1/D5 when the layout graph marks the element
+`layer="overlay"` or OVERLAPS a card, since translucent chrome over dynamic artwork samples the
+poster, not its own fill. **It did not change these findings** — the bottom nav overlaps the last
+card row by ~1 px, far below `float_min_overlap`, so it is not an overlay. Sampling the production
+image at the *client's* box still returns rgb(111,105,105), so the boxes are right and the pixels
+really do differ at the same location. Whether that is a genuine chrome change between builds or
+artwork through a translucent bar cannot be settled from pixels — it needs a human to look. Do not
+present those 12 as confirmed defects without checking.
+
+**Tests:** 66 pass across comparison/reporting/group_shift/screen/color/layout; full suite 118
+pass with the **same 15 pre-existing failures** (14 `test_fusion.py`, 1 `test_graph.py`).
+
+**Still missing / blocked:**
+- The C2 size pixel floor (12.3) is still blocked on `input/jitter/<screen>_a|_b` — same screen,
+  same build, seconds apart. Size is the largest remaining noise source: 10 findings on the home
+  pair, 5 on the language pair.
+- `numpy` and `opencv-contrib-python` are **not in `requirements.txt`** — present only
+  transitively via paddleocr. Pin them before this ships.
+- Not built: A4, B6, B7, C3, D3, D4, D6, D7, E2, E4-E7, F1-F4, G1-G3.
+- `make_benchmark` / `run_benchmark` still never run.

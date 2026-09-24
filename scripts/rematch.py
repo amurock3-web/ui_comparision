@@ -73,7 +73,8 @@ def main():
 
     match_result = ElementMatcher().match(production_doc, client_doc, production_graph, client_graph)
     differences = DifferenceEngine().compare(
-        production_doc, client_doc, production_graph, client_graph, match_result
+        production_doc, client_doc, production_graph, client_graph, match_result,
+        production_image=production_image, client_image=client_image,
     )
 
     (OUTPUT_DIR / f"{prefix}_comparison.json").write_text(

@@ -91,13 +91,20 @@ def run_screen(screen_dir: Path, cases_dir: Path) -> list:
     screen = manifest["screen"]
     client_image = screen_dir / manifest["client"]
     client_doc, client_graph = build_document(client_image, screen, "client")
+    # Saved so a scoring change can be re-checked with scripts.rematch in
+    # seconds instead of paying the ~50 s OCR pass per case all over again.
+    client_doc.save_json(cases_dir / f"{screen}_client_fused.json")
     rows = []
     for case in manifest["cases"]:
         print(f"\n=== {screen} / {case['id']} (expect {case['spec_id'] or 'PASS'}) ===")
         prod_image = screen_dir / case["production"]
         prod_doc, prod_graph = build_document(prod_image, f"{screen}_{case['id']}", "production")
+        prod_doc.save_json(cases_dir / f"{screen}_{case['id']}_production_fused.json")
         match = ElementMatcher().match(prod_doc, client_doc, prod_graph, client_graph)
-        differences = DifferenceEngine().compare(prod_doc, client_doc, prod_graph, client_graph, match)
+        # The images carry the screen-level (A1/A2/A3/A5) and colour (D1/D2/D5)
+        # checks; without them a rotated case cannot report A1 at all.
+        differences = DifferenceEngine().compare(prod_doc, client_doc, prod_graph, client_graph, match,
+                                                 production_image=prod_image, client_image=client_image)
         report = ReportGenerator().generate(prod_doc, client_doc, differences)
         report_path = write_html_report(report, prod_image, client_image, prod_doc, client_doc,
                                         differences, cases_dir / f"{screen}_{case['id']}.html",

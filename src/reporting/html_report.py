@@ -90,6 +90,42 @@ def _reason(f) -> str:
         return f"{what} is in production but not in the client design."
     if t == "CLASS_DIFFERENCE":
         return f"Detected as {d['production_class']} in production, {d['client_class']} in the design."
+    if t == "ORIENTATION_DIFFERENCE":
+        return (f"Screen orientation differs: {d['production']['orientation']} in production, "
+                f"{d['client']['orientation']} in the design.")
+    if t == "BLANK_SCREEN":
+        side = "production" if d["production"]["blank"] else "client"
+        return (f"The {side} screenshot looks blank or broken "
+                f"({100 * d[side]['dominant_colour_fraction']:.0f}% one colour).")
+    if t == "THEME_DIFFERENCE":
+        return (f"Theme differs: {d['production']['theme']} in production, "
+                f"{d['client']['theme']} in the design.")
+    if t == "SCALING_DIFFERENCE":
+        return (f"The UI is stretched: aspect ratio differs by "
+                f"{100 * d['aspect_ratio_difference']:.1f}%.")
+    if t in ("COLOR_DIFFERENCE", "BADGE_COLOR_DIFFERENCE"):
+        return (f"{what} colour differs by dE {d['delta_e']}: rgb{tuple(d['production_rgb'])} "
+                f"in production vs rgb{tuple(d['client_rgb'])} in the design.")
+    if t == "BACKGROUND_COLOR_DIFFERENCE":
+        return (f"Page background differs by dE {d['delta_e']}: rgb{tuple(d['production_rgb'])} "
+                f"in production vs rgb{tuple(d['client_rgb'])} in the design.")
+    if t in ("SECTION_ORDER_DIFFERENCE", "TAB_ORDER_DIFFERENCE"):
+        moved = ", ".join(
+            f'"{m["label"]}" is #{m["client_index"] + 1} in the design but '
+            f'#{m["production_index"] + 1} in production' for m in d["moved"])
+        what_moved = "Sections" if t.startswith("SECTION") else "Tabs"
+        return f"{what_moved} are in a different order: {moved}."
+    if t == "ALIGNMENT_DIFFERENCE":
+        pair = " and ".join(f'"{x}"' for x in d["labels"] if x) or "two elements"
+        return (f"{pair} share a {d['axis'].replace('_', ' ')} edge in the design; in production "
+                f"they are {100 * d['production_offset_norm']:.1f}% apart.")
+    if t == "CLIPPING_DIFFERENCE":
+        side = d["clipped_in"]
+        tail = f" {d['note']}" if d.get("note") else ""
+        return f"{what} is cut off in the {side} but fully visible in the other.{tail}"
+    if t == "TEXT_STYLE_DIFFERENCE":
+        return (f'Same wording, different style: "{d["production_text"]}" in production '
+                f'vs "{d["client_text"]}" in the design.')
     if t == "TEXT_DIFFERENCE":
         return f'Label reads "{d["production_text"]}" in production, "{d["client_text"]}" in the design.'
     if t == "GROUP_SHIFT":

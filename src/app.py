@@ -91,7 +91,8 @@ def run_comparison(run_dir: Path, prod_path: Path, client_path: Path):
         client_doc.save_json(run_dir / "client_fused.json")
         stage("Matching")
         match = ElementMatcher().match(prod_doc, client_doc, prod_graph, client_graph)
-        differences = DifferenceEngine().compare(prod_doc, client_doc, prod_graph, client_graph, match)
+        differences = DifferenceEngine().compare(prod_doc, client_doc, prod_graph, client_graph, match,
+                                         production_image=prod_path, client_image=client_path)
         stage("Report")
         report = ReportGenerator().generate(prod_doc, client_doc, differences)
         ReportGenerator.save_json(report, run_dir / "report.json")

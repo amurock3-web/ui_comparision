@@ -216,7 +216,11 @@ def test_structural_difference_flagged_when_sibling_context_changes():
     client = _doc([c_card, c_badge], source="client")
     client_graph = UIGraphBuilder().build(client)
 
-    differences = DifferenceEngine().compare(prod, client, prod_graph, client_graph)
+    # STRUCTURAL_DIFFERENCE is off by default (it has no spec row and fires on
+    # about half the matched pairs of a real screen), so opt in here.
+    engine = DifferenceEngine()
+    engine.report_structural = True
+    differences = engine.compare(prod, client, prod_graph, client_graph)
 
     badge_diffs = [d for d in differences if d.production_id == "p_badge"]
     assert any(d.type == "STRUCTURAL_DIFFERENCE" for d in badge_diffs)

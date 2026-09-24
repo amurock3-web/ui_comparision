@@ -8,6 +8,14 @@ ocr:
 
 matching:
   minimum_match_score: 0.70
+  # An element that changed size defeats IoU: shortening a section title from
+  # "Action Crime" to "Action" drops IoU to 0.29 and the pair falls to 0.66,
+  # under the 0.70 threshold - so the size change prevents the match that would
+  # have reported the text change. The iou term is therefore the better of true
+  # IoU and this fraction of intersection-over-smaller-box. Below 1.0 because
+  # containment is weaker evidence: a small box sits inside any large box it
+  # overlaps. 0 restores plain IoU.
+  containment_credit: 0.5
   weights:
     class: 0.25
     text: 0.25
@@ -25,18 +33,25 @@ matching:
   group_shift:
     enabled: true
     # Below this many anchors a container's shift is not trustworthy, so the
-    # next container up the CONTAINS chain is tried instead.
-    min_anchors: 3
+    # next container up the CONTAINS chain is tried instead. 2, not 3: the
+    # layout tree splits a panel into rows of two, so 3 sent every lookup up
+    # to the screen root, i.e. back to one global shift.
+    min_anchors: 2
     # An anchor must be unambiguous: same class plus either near-identical
     # text or boxes that still overlap.
     anchor_min_text_score: 0.9
     anchor_min_iou: 0.5
-    # Median absolute deviation of the anchors' dx/dy. Above this the members
-    # did not move as one piece, so no shift is applied. 0.01 = 10.8 px wide.
+    # Every anchor must lie within this of the median dx/dy, or the members did
+    # not move as one piece and no shift is applied. 0.01 = 10.8 px wide.
     max_spread_norm: 0.01
 
 comparison:
   structural_similarity_threshold: 0.5
+  # STRUCTURAL_DIFFERENCE has no row in test_cases_pass_fail.md and fired on 9
+  # of 18 matched pairs on the SunNXT language pair: two screens with different
+  # element counts cannot share a graph neighbourhood, so it restates what B1/B2
+  # already report. Turn on to debug matching, not for a real verdict.
+  report_structural_difference: false
   # PASS/REVIEW/FAIL bands from docs/test_cases_pass_fail.md — proposed
   # defaults, not yet confirmed by the manager.
   # C1: center distance as a fraction of the screen diagonal.
@@ -52,6 +67,50 @@ comparison:
   static_text_classes: [tab_item, button, section_title, search_bar]
   # B1: missing element of these classes is Critical (others Major).
   critical_classes: [button, tab_item, navigation_bar, logo]
+  # A1-A5 screen-level checks (src/comparison/screen_checks.py): the two images
+  # compared as whole frames, before any detection.
+  screen:
+    # A2: more than this share of the frame in one colour, or fewer than
+    # edge_density_min pixels on a luminance step, means a blank or broken
+    # render. 0.90 is the spec's own wording; edge_density_min is a deliberately
+    # safe floor and is NOT yet calibrated against real screenshots - a sparse
+    # splash screen must not trip it.
+    dominant_colour_fraction_max: 0.90
+    edge_density_min: 0.005
+    # A3: below this mean luminance (status bar excluded) the screen reads dark.
+    # Real OTT dark themes sit at 0.05-0.20 and light ones at 0.85-0.95, so the
+    # boundary is far from either cluster; slightly under 0.5 because a dark app
+    # with a bright hero banner pulls the mean up more often than the reverse.
+    dark_luminance_max: 0.45
+    # A5: aspect difference relative to the client. A pure resolution change at
+    # the same aspect is a device difference, not a defect, and is not reported.
+    aspect_bands: {pass: 0.05, fail: 0.15}
+  # D1/D2/D5 colour (src/comparison/color_checks.py), CIELAB dE2000. dE ~1 is
+  # the just-noticeable difference, under 2 nobody spots it, 2-5 is visible side
+  # by side, over 5 is obvious. Brand and background get the tight band because
+  # a designer eyeballs those against a swatch; a badge is small, anti-aliased
+  # and Minor, so failing a build over a shade of it is not worth it.
+  color:
+    brand_bands: {pass: 3.0, fail: 6.0}       # D1 - matched chrome
+    background_bands: {pass: 3.0, fail: 6.0}  # D2 - page background
+    badge_bands: {pass: 5.0, fail: 10.0}      # D5 - overlay badges
+    # Chrome whose fill colour is worth comparing. Never a content/cast/
+    # celebrity card: poster artwork is dynamic content (rules.md §2).
+    brand_classes: [button, logo, navigation_bar, tab_item, search_bar]
+    # Centre fraction of a crop sampled, so anti-aliased rims and rounded
+    # corners cannot drag the fill toward the background.
+    inset_fraction: 0.25
+    badge_inset_fraction: 0.15
+  # B3/B4/B5/B8 structure (src/comparison/layout_checks.py), read off the layout
+  # graph both sides already build - no new extraction.
+  layout:
+    # B5 fires on how much an alignment LOOSENED, not on absolute offset: the
+    # client's own ALIGNED_WITH clusters are built at graph.alignment_epsilon_norm
+    # (0.02), which is looser than B5's 1.5%, so an absolute test would flag pairs
+    # the client never aligned tightly in the first place.
+    alignment_tolerance_norm: 0.015
+    # Fewest items in a bar where order can meaningfully differ.
+    min_tab_items: 2
 
 vlm:
   model: qwen2.5vl:7b

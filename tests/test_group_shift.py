@@ -100,10 +100,11 @@ def test_a_member_that_moved_further_still_gets_its_own_finding():
 
 
 def test_too_few_anchors_means_no_shift():
+    # One anchor is below min_anchors, so the container cannot vote at all.
     prod, client, _ = _panel(SHIFT)
-    graph = _graph({"grp_panel": ["a1", "a2", "c1", "c2", "c3"]})  # a3 left out
-    prod = _doc([e for e in prod.elements if e.id != "a3"], "production")
-    client = _doc([e for e in client.elements if e.id != "a3"], "client")
+    graph = _graph({"grp_panel": ["a1", "c1", "c2", "c3"]})
+    prod = _doc([e for e in prod.elements if e.id not in ("a2", "a3")], "production")
+    client = _doc([e for e in client.elements if e.id not in ("a2", "a3")], "client")
 
     result, differences = _compare(prod, client, graph)
 

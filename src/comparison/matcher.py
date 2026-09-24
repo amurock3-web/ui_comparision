@@ -100,6 +100,25 @@ def _iou(normalized_bbox_a, normalized_bbox_b) -> float:
     return box_a.intersection(box_b).area / union
 
 
+def _containment(normalized_bbox_a, normalized_bbox_b) -> float:
+    """Intersection over the SMALLER box: how much the smaller one sits inside
+    the larger. Where IoU asks "are these the same box", this asks "is one of
+    these inside the other", which is what survives an element changing size.
+
+    Needed because a shrinking element defeats IoU: on the benchmark's
+    relabel_title case "Action Crime" -> "Action" narrows the title box, IoU
+    falls to 0.29 and the pair scores 0.66 against a 0.70 threshold - so the
+    size change prevents the match that would have reported the text change.
+    """
+    ax, ay, aw, ah = normalized_bbox_a
+    bx, by, bw, bh = normalized_bbox_b
+    if aw <= 0 or ah <= 0 or bw <= 0 or bh <= 0:
+        return 0.0
+    box_a, box_b = box(ax, ay, ax + aw, ay + ah), box(bx, by, bx + bw, by + bh)
+    smaller = min(box_a.area, box_b.area)
+    return box_a.intersection(box_b).area / smaller if smaller else 0.0
+
+
 def _unshift(normalized_bbox, shift):
     """Production box moved back by its group's shift (x/y only)."""
     dx, dy = shift
@@ -117,9 +136,30 @@ def _container_of(graph, node_id):
     return None
 
 
-def _mad(values, centre) -> float:
-    """Median absolute deviation — spread that one outlier cannot inflate."""
-    return statistics.median([abs(v - centre) for v in values]) if values else 0.0
+def _agreed_shift(votes, tolerance, quorum):
+    """The (dx, dy) a container's anchors agree on, or None.
+
+    Anchors further than `tolerance` from the median are dropped rather than
+    averaged in - a member that moved on its own must not drag the panel's
+    estimate, and it still gets its own C1 finding from the residual. What is
+    left has to be at least `quorum` votes, so a shift is never inferred from
+    the one or two anchors that happened to survive the trim.
+
+    Plain median absolute deviation was tried first and was too forgiving: it
+    tolerates up to half the votes disagreeing, which on the SunNXT language
+    screen let a sheet-wide shift be accepted while two header tabs that had
+    not moved with it voted against.
+    """
+    if len(votes) < quorum:
+        return None
+    mx = statistics.median([v[0] for v in votes])
+    my = statistics.median([v[1] for v in votes])
+    kept = [v for v in votes
+            if abs(v[0] - mx) <= tolerance and abs(v[1] - my) <= tolerance]
+    if len(kept) < quorum:
+        return None
+    return (statistics.median([v[0] for v in kept]),
+            statistics.median([v[1] for v in kept]), len(kept))
 
 
 def _node_context(graph, node_id, class_by_id):
@@ -183,6 +223,10 @@ class ElementMatcher:
         self.anchor_min_text_score = gs.get("anchor_min_text_score", 0.9)
         self.anchor_min_iou = gs.get("anchor_min_iou", 0.5)
         self.max_spread_norm = gs.get("max_spread_norm", 0.01)
+        # How much credit a contained-but-not-overlapping box gets against a
+        # true IoU. Below 1.0 because containment is weaker evidence: a small
+        # box sits fully inside any large one it happens to overlap.
+        self.containment_credit = cfg.get("containment_credit", 0.5)
 
     def match(
         self,
@@ -211,7 +255,8 @@ class ElementMatcher:
                 "spatial": _spatial_score(
                     _normalized_center(pb), _normalized_center(c.normalized_bbox)
                 ),
-                "iou": _iou(pb, c.normalized_bbox),
+                "iou": max(_iou(pb, c.normalized_bbox),
+                           self.containment_credit * _containment(pb, c.normalized_bbox)),
                 "context": _context_score(prod_context[p.id], client_context[c.id]),
             }
             score = (
@@ -300,27 +345,41 @@ class ElementMatcher:
             p, c = prod_by_id[m.production_id], client_by_id[m.client_id]
             if not self._is_anchor(p, c, m.breakdown, client_by_id):
                 continue
-            group = _container_of(client_graph, c.id)
-            if group is None:
-                continue
             pc, cc = _normalized_center(p.normalized_bbox), _normalized_center(c.normalized_bbox)
-            anchors.setdefault(group, []).append((pc[0] - cc[0], pc[1] - cc[1]))
+            vote = (pc[0] - cc[0], pc[1] - cc[1])
+            # Vote in every container above this element, not just the nearest
+            # one: the layout tree splits a panel into rows, so a row rarely
+            # holds min_anchors on its own while the panel around it does. The
+            # nearest container that both clears min_anchors and agrees wins,
+            # and the screen root usually mixes panels and fails the spread
+            # test - which is the point, there is no global shift.
+            group = _container_of(client_graph, c.id)
+            while group is not None:
+                anchors.setdefault(group, []).append(vote)
+                group = _container_of(client_graph, group)
 
         shifts = {}
         for group, votes in anchors.items():
-            if len(votes) < self.min_anchors:
-                continue
-            dxs, dys = [v[0] for v in votes], [v[1] for v in votes]
-            dx, dy = statistics.median(dxs), statistics.median(dys)
-            if _mad(dxs, dx) > self.max_spread_norm or _mad(dys, dy) > self.max_spread_norm:
-                continue  # did not move as one piece
+            agreed = _agreed_shift(votes, self.max_spread_norm, self.min_anchors)
+            if agreed is None:
+                continue  # too few anchors, or they did not move as one piece
+            dx, dy, kept = agreed
             members = [v for _, v, data in client_graph.out_edges(group, data=True)
                        if data.get("relationship") == "CONTAINS"]
-            shifts[group] = {"shift": (dx, dy), "anchors": len(votes), "members": members}
+            shifts[group] = {"shift": (dx, dy), "anchors": kept, "members": members}
         return shifts
 
     def _shift_for(self, client_id, client_graph, shifts):
-        """This element's container shift, else the nearest one above it."""
+        """This element's container shift, else the nearest one above it.
+
+        Nearest wins, which is what keeps this honest: on the SunNXT language
+        screen the header tabs take their own container's +21 px while the
+        sheet's rows take -139 px. The screen root is allowed only as the last
+        resort, for the elements the layout tree left hanging directly off it
+        (here the Save button and the subtitle, which did ride with the sheet)
+        - without it they get no shift and their panel's move is reported
+        against each of them separately.
+        """
         group = _container_of(client_graph, client_id)
         while group is not None:
             if group in shifts:
