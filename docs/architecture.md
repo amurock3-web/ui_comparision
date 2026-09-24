@@ -168,6 +168,14 @@ Initial relationships: CONTAINS, CHILD_OF, BELONGS_TO, ABOVE, BELOW, LEFT_OF, RI
 
 Candidate signals: - class similarity - text similarity - center distance - bbox overlap/IoU - size - graph context - parent - ordering
 
+Group shift (Phase 12.2, `matching.group_shift` in config.yaml): pass 1 matches unshifted. Confident
+pass-1 pairs (same class, text score ≥ 0.9 or IoU ≥ 0.5, not dynamic) are anchors; each client
+layout-graph container with ≥ 3 anchors whose dx/dy MAD ≤ 0.01 gets their median shift. Pass 2 re-scores
+only still-unmatched elements with the production box moved back by the shift of the element's own
+container (or the nearest shifted one up the CONTAINS chain) — never a global shift, so a header tab
+cannot pair with a same-label sheet tab. The differ reports each shift once as `GROUP_SHIFT` (C1 bands)
+and judges members' POSITION_DIFFERENCE on the residual only. `enabled: false` restores pre-12.2 output.
+
 10. Geometry
 
 Compare x/y/width/height/center/aspect ratio/IoU/normalized position.

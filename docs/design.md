@@ -156,6 +156,13 @@ Do not hard-code severity without project evidence.
 
 Summary:
 
+Similarity counts elements, not Difference records (Phase 12.1): matched pairs / (matched + missing + extra).
+A pair with three sub-differences is one matched element; `clean` = matched pairs with no finding.
+Dynamic content ignored under §H (poster tiles, status bar) stays out of the denominator and is only
+counted as `ignored`. `report["summary"]` holds matched_pairs, clean_pairs, missing, extra, ignored,
+comparable, similarity_percent, clean_percent and difference_records (debug only), plus per-type counts.
+No comparable elements → 0% with a `warning`.
+
 text
 Screen: SS012
 Similarity: 91.4%

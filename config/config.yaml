@@ -14,6 +14,26 @@ matching:
     spatial: 0.2
     iou: 0.2
     context: 0.1
+  # A whole panel often moves as one piece between two builds: on the SunNXT
+  # language screen the bottom sheet sits ~136 px (0.058) lower in the client
+  # while the header behind it moved only ~10 px. Judged per element that is
+  # six position findings plus 7 of 8 tiles failing to match, because a
+  # text-less card scores ~0.62 once IoU collapses. So the shift is estimated
+  # per layout-graph container from its own matched anchors, reported once,
+  # and subtracted before the second matching pass.
+  # enabled: false reproduces the pre-Phase-12.2 output exactly.
+  group_shift:
+    enabled: true
+    # Below this many anchors a container's shift is not trustworthy, so the
+    # next container up the CONTAINS chain is tried instead.
+    min_anchors: 3
+    # An anchor must be unambiguous: same class plus either near-identical
+    # text or boxes that still overlap.
+    anchor_min_text_score: 0.9
+    anchor_min_iou: 0.5
+    # Median absolute deviation of the anchors' dx/dy. Above this the members
+    # did not move as one piece, so no shift is applied. 0.01 = 10.8 px wide.
+    max_spread_norm: 0.01
 
 comparison:
   structural_similarity_threshold: 0.5

@@ -68,6 +68,9 @@ Use: - class - text - position - size - bbox - IoU - normalized coordinates - sp
 
 Initial: MATCH, MISSING_IN_CLIENT, EXTRA_IN_CLIENT, CLASS_DIFFERENCE, TEXT_DIFFERENCE, POSITION_DIFFERENCE, SIZE_DIFFERENCE, GEOMETRY_DIFFERENCE, STRUCTURAL_DIFFERENCE, ORDER_DIFFERENCE, UNCERTAIN.
 
+Added 2026-09-24 (Phase 12.2, in use): `GROUP_SHIFT` — a layout container that moved as one piece, reported
+once under C1 instead of once per member.
+
 **Proposed additions (2026-09-21, pending approval — not yet in use):**
 `COLOR_DIFFERENCE` (element or screen background/text color changed,
 measured as ΔE in CIELAB, see design.md §21) and

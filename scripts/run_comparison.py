@@ -22,6 +22,8 @@ from src.reporting.report import ReportGenerator
 #   testN_<screen>_report.json       verdict, findings, coverage, confidence
 #   testN_<screen>_report.html       the page to read (self-contained)
 #   testN_<screen>_report.png        side-by-side image used in the page
+#   testN_<screen>_{production,client}_fused.json   the fused UIDocuments, so
+#       scripts.rematch can redo matching/differ/report without the ~90s pass
 PRODUCTION_IMAGE = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
 CLIENT_IMAGE = Path(sys.argv[2] if len(sys.argv) > 2 else "input/client/ss012.png")
 PRODUCTION_SCREEN_ID = PRODUCTION_IMAGE.stem
@@ -36,6 +38,9 @@ REPORT_PREFIX = f"test{N}_{PRODUCTION_SCREEN_ID}_report"
 
 production_doc, production_graph = build_document(PRODUCTION_IMAGE, PRODUCTION_SCREEN_ID, "production")
 client_doc, client_graph = build_document(CLIENT_IMAGE, CLIENT_SCREEN_ID, "client")
+
+production_doc.save_json(OUTPUT_DIR / f"test{N}_{PRODUCTION_SCREEN_ID}_production_fused.json")
+client_doc.save_json(OUTPUT_DIR / f"test{N}_{PRODUCTION_SCREEN_ID}_client_fused.json")
 
 match_result = ElementMatcher().match(production_doc, client_doc, production_graph, client_graph)
 differences = DifferenceEngine().compare(
@@ -65,3 +70,6 @@ print(f"Verdict: {report['verdict']}  similarity {report['similarity_percent']}%
 print(f"\nDifferences JSON saved to: {OUTPUT_DIR / f'{PREFIX}.json'}")
 print(f"Report JSON saved to:      {OUTPUT_DIR / f'{REPORT_PREFIX}.json'}")
 print(f"HTML report saved to:      {html_path}")
+print("Fused documents (feed these to scripts.rematch):")
+print(f"  {OUTPUT_DIR / f'test{N}_{PRODUCTION_SCREEN_ID}_production_fused.json'}")
+print(f"  {OUTPUT_DIR / f'test{N}_{PRODUCTION_SCREEN_ID}_client_fused.json'}")

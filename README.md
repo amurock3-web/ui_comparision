@@ -68,7 +68,7 @@ The code is bind-mounted and never copied into the image. See [`docs/environment
 python -m src.app
 ```
 
-This opens `http://127.0.0.1:8765` in the browser. Drop the production screenshot and the client design into the two boxes, then press **Compare**. A progress bar steps through the stages (OCR takes about a minute per image on CPU). When it finishes, the page shows the verdict, the counts, the full report and a **Download PDF** button. The PDF is printed by headless Microsoft Edge; without Edge, use the browser's Save as PDF. The server only listens on localhost, and it runs one comparison at a time. Each run is kept in `output/app/<timestamp>/`: the inputs plus `report.json`, `.html`, `.png` and `.pdf`.
+This opens `http://127.0.0.1:8765` in the browser. Drop the production screenshot and the client design into the two boxes, then press **Compare**. A progress bar steps through the stages (OCR takes about a minute per image on CPU). When it finishes, the page shows the verdict, the counts, the full report and a **Download PDF** button. The PDF is printed by headless Microsoft Edge; without Edge, use the browser's Save as PDF. The server only listens on localhost, and it runs one comparison at a time. Each run is kept in `output/app/<timestamp>/`: the inputs, `production_fused.json` / `client_fused.json`, plus `report.json`, `.html`, `.png` and `.pdf`.
 
 ### Command line
 
@@ -97,6 +97,14 @@ Outputs go under `output/`:
 python -m scripts.run_fusion input/production/ss031.png
 python -m scripts.run_comparison <production.png> <client.png>
 ```
+
+`run_comparison` and the web UI also save each side's fused document. To iterate on matching, the differ or the report without the ~90 s detector + OCR pass:
+
+```bash
+python -m scripts.rematch <production_fused.json> <client_fused.json>   # output/rematch/testN_*
+```
+
+Pass the same JSON twice for a self-compare: it should come out 100% matched, 100% clean, PASS.
 
 ## Tests
 

@@ -20,6 +20,7 @@ import yaml
 from PIL import Image
 
 from src.graph.layout import SCREEN_ID, describe
+from src.reporting.report import SUMMARY_FIELDS
 from src.reporting.visualize import draw_comparison_result
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,8 +92,15 @@ def _reason(f) -> str:
         return f"Detected as {d['production_class']} in production, {d['client_class']} in the design."
     if t == "TEXT_DIFFERENCE":
         return f'Label reads "{d["production_text"]}" in production, "{d["client_text"]}" in the design.'
+    if t == "GROUP_SHIFT":
+        name = d["label"] or "A group of elements"
+        way = "up" if d["dy_px"] < 0 else "down"
+        moved = f"{way} {abs(d['dy_px']):.0f} px" if abs(d["dy_px"]) >= abs(d["dx_px"]) else                 f"sideways {abs(d['dx_px']):.0f} px"
+        return (f"{name} moved {moved} as one piece "
+                f"({100 * d['distance_of_diagonal']:.1f}% of the diagonal, "
+                f"{d['anchors']} anchors, {len(d['members'])} members).")
     if t == "POSITION_DIFFERENCE":
-        return f"{what} moved {100 * d['distance_of_diagonal']:.1f}% of the screen diagonal."
+        return f"{what} moved {100 * d['distance_of_diagonal']:.1f}% of the screen diagonal, relative to its group."
     if t == "SIZE_DIFFERENCE":
         return (f"{what} size differs: width {100 * d['width_ratio_diff']:.0f}%, "
                 f"height {100 * d['height_ratio_diff']:.0f}%.")
@@ -145,7 +153,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
     specced = [c for c in coverage if c["status"] != "applied"]
     verdict = report["verdict"]
     s = report["summary"]
-    counts = {k: v for k, v in s.items() if k != "total_compared"}
+    counts = {k: v for k, v in s.items() if k not in SUMMARY_FIELDS}
 
     out = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -159,11 +167,15 @@ def write_html_report(report, production_image, client_image, production_doc, cl
     out.append(f"<div class='note'>This verdict covers the <b>{len(checked)} of {len(specced)}</b> "
                f"test cases that are built (listed under Coverage). A PASS means the screen passed "
                f"those checks, not that nothing else is wrong.</div>")
+    # Elements, not Difference records: one pair with three sub-differences is one element.
     out.append("<div class='stats'>"
-               f"<div class='stat'><b>{report['similarity_percent']}%</b>matched</div>"
-               f"<div class='stat'><b>{s['total_compared']}</b>compared</div>"
+               f"<div class='stat'><b>Matched {s['matched_pairs']} of {s['comparable']} elements "
+               f"({s['similarity_percent']}%)</b>clean {s['clean_pairs']} &middot; "
+               f"missing {s['missing']} &middot; extra {s['extra']} &middot; ignored {s['ignored']}</div>"
                f"<div class='stat'><b>{len(report['findings'])}</b>findings</div>"
                f"<div class='stat'><b>{report['warnings']}</b>minor warnings</div></div>")
+    if s.get("warning"):
+        out.append(f"<div class='note'>{esc(s['warning'])}</div>")
     out.append("<div class='muted'>" + " &middot; ".join(f"{esc(k)}: {v}" for k, v in counts.items()) + "</div>")
 
     out.append("<h2>Side by side</h2><div class='legend muted'>"

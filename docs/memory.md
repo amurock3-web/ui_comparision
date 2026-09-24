@@ -431,6 +431,26 @@ D1, D2, E1). In priority order:
 - Do clients provide real app screenshots or design mockups?
 - Which regression types are most common in real QA tickets?
 
+## Phase 12 — comparison-stage fixes — 2026-09-24
+
+Prompts in `phase12_matching_fix_prompts.md`. Triggered by the SunNXT app runs
+`output/app/20260922_121255` (lang) and `20260921_165919` (home): 0.0% similarity despite correct
+pairs, whole-panel moves reported per element, detector box wobble flagged as findings.
+- **12.0** `run_comparison` and `src/app.py` save both fused UIDocuments; new
+  `scripts/rematch.py` reruns graph → matcher → differ → report from them in seconds
+  (`output/rematch/testN_*`). Same JSON twice = self-compare.
+- **12.1** Similarity is an element count (design.md §12): matched / (matched + missing + extra),
+  §H-ignored content out of the denominator, plus `clean_pairs`/`clean_percent`. The old
+  `total_compared` (record count) is gone; `difference_records` keeps it for debugging. HTML
+  report and web UI show one headline: "Matched X of Y elements (Z%) · clean · missing · extra · ignored".
+  `tests/test_reporting.py` rewritten for this (no longer a placeholder).
+- **12.2** Per-container group shift + second matching pass (architecture.md §9); new
+  `GROUP_SHIFT` finding (C1); members judged on residual. Config `matching.group_shift`.
+  `_is_dynamic` moved to `matcher.py` (shared by matcher and differ).
+- **12.3** (box-wobble pixel floor) not started — needs same-build screenshot pairs.
+
+Not yet verified: unit tests and the lang/home rematch were not run as part of this doc update.
+
 ## Class refiner experiment (design.md §18) — 2026-09-22
 
 Started ahead of the MVP by decision. Scripts only; outputs in `output/class_refiner/`.

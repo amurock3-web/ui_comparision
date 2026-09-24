@@ -17,6 +17,7 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - One screen, stage by stage: `python -m scripts.run_detector|run_ocr|run_fusion <image>`
 - Layout graph from a saved fusion JSON (no 90 s rerun): `python -m scripts.build_graph_from_fusion <json> --layout`
 - Compare a pair (writes the HTML report): `python -m scripts.run_comparison <production> <client>`
+- Redo matching/differ/report from saved fused JSONs (seconds, no detector/OCR): `python -m scripts.rematch <production_fused.json> <client_fused.json>` (same JSON twice = self-compare)
 - Known-defect benchmark: `python -m scripts.make_benchmark` then `python -m scripts.run_benchmark`
 - Drag-and-drop UI: `python -m src.app` (http://127.0.0.1:8765; runs kept in output/app/)
 - Full pipeline CLI: `python -m src.main --production-image ... --production-screen-id ... --client-image ... --client-screen-id ...`

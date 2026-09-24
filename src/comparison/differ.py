@@ -19,7 +19,11 @@ bands), C4 (class), E1 (static-text label). Dynamic content (§H) —
 anything inside a content_card — is never compared; text is compared only
 for static-text classes.
 
-Implemented types: MATCH, MISSING_IN_PRODUCTION, EXTRA_IN_PRODUCTION,
+A panel that moved as one piece is reported once as GROUP_SHIFT (C1) and
+its members are judged only on their residual — see matcher.py's second
+pass, which also re-matches the members the move had pushed apart.
+
+Implemented types: MATCH, MISSING_IN_PRODUCTION, EXTRA_IN_PRODUCTION, GROUP_SHIFT,
 CLASS_DIFFERENCE, TEXT_DIFFERENCE, POSITION_DIFFERENCE, SIZE_DIFFERENCE,
 STRUCTURAL_DIFFERENCE (driven by the matcher's one-hop context score).
 GEOMETRY_DIFFERENCE, ORDER_DIFFERENCE, and UNCERTAIN from rules.md §8 are
@@ -31,7 +35,8 @@ from pathlib import Path
 
 import yaml
 
-from src.comparison.matcher import ElementMatcher, _normalize_text, _normalized_center
+from src.comparison.matcher import (ElementMatcher, _is_dynamic, _normalize_text,
+                                    _normalized_center)
 from src.schema.ui_element import UIDocument
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
@@ -105,13 +110,15 @@ class DifferenceEngine:
             el = prod_by_id[pid]
             differences.append(self._unmatched("EXTRA_IN_PRODUCTION", el, prod_by_id, pid, None))
 
+        differences.extend(self._group_shifts(match_result, client_by_id))
+
         for m in match_result.matches:
             p = prod_by_id[m.production_id]
             c = client_by_id[m.client_id]
             if self._is_dynamic(c, client_by_id):
                 differences.append(Difference("MATCH", p.id, c.id, {"score": m.score, "ignored": "dynamic content"}))
                 continue
-            sub_differences = self._sub_differences(p, c, m.breakdown)
+            sub_differences = self._sub_differences(p, c, m.breakdown, m.shift)
             if not sub_differences:
                 differences.append(Difference("MATCH", p.id, c.id, {"score": m.score}))
             else:
@@ -119,14 +126,54 @@ class DifferenceEngine:
 
         return differences
 
-    @staticmethod
-    def _is_dynamic(el, by_id) -> bool:
-        """§H ignore list: anything inside a content_card is live data, and
-        anything fusion tagged ignored (the status bar)."""
-        if el.metadata.get("ignored"):
-            return True
-        parent = by_id.get(el.parent_id) if el.parent_id else None
-        return parent is not None and parent.class_ == "content_card"
+    _is_dynamic = staticmethod(_is_dynamic)  # §H rule lives in matcher.py
+
+    def _position_verdict(self, distance, bands):
+        """C1 bands -> (verdict, severity)."""
+        if distance <= bands["pass"]:
+            return PASS, None
+        if distance <= bands["fail"]:
+            return REVIEW, None
+        return FAIL, (MAJOR if distance > bands["major"] else MINOR)
+
+    def _diagonal_fraction(self, dx, dy) -> float:
+        """A normalized (dx, dy) as a fraction of the screen diagonal (C1's unit)."""
+        w, h = self._screen
+        return ((dx * w) ** 2 + (dy * h) ** 2) ** 0.5 / (w ** 2 + h ** 2) ** 0.5
+
+    def _group_shifts(self, match_result, client_by_id) -> list:
+        """One C1 finding per container that moved as one piece, instead of one
+        per member. The members are then judged on their residual only."""
+        found = []
+        for group, info in match_result.group_shifts.items():
+            dx, dy = info["shift"]
+            distance = self._diagonal_fraction(dx, dy)
+            if distance <= self.position_bands["pass"]:
+                continue
+            verdict, severity = self._position_verdict(distance, self.position_bands)
+            w, h = self._screen
+            label = next((client_by_id[i].text for i in info["members"]
+                          if i in client_by_id and client_by_id[i].class_ == "section_title"
+                          and client_by_id[i].text), None)
+            found.append(
+                Difference(
+                    type="GROUP_SHIFT",
+                    production_id=None,
+                    client_id=group,
+                    details={
+                        "group": group,
+                        "label": label,
+                        "dx_px": round(dx * w, 1),
+                        "dy_px": round(dy * h, 1),
+                        "distance_of_diagonal": distance,
+                        "anchors": info["anchors"],
+                        "members": info["members"],
+                    },
+                    verdict=verdict,
+                    severity=severity,
+                )
+            )
+        return found
 
     def _unmatched(self, diff_type, el, by_id, pid, cid) -> Difference:
         details = {"class": el.class_, "text": el.text, "confidence": el.confidence}
@@ -141,7 +188,7 @@ class DifferenceEngine:
             return Difference(diff_type, pid, cid, details, FAIL, CRITICAL)  # B1
         return Difference(diff_type, pid, cid, details, FAIL, MAJOR)  # B1 / B2
 
-    def _sub_differences(self, p, c, breakdown) -> list:
+    def _sub_differences(self, p, c, breakdown, shift=(0.0, 0.0)) -> list:
         found = []
 
         # C4
@@ -176,17 +223,16 @@ class DifferenceEngine:
         # C1
         p_center = _normalized_center(p.normalized_bbox)
         c_center = _normalized_center(c.normalized_bbox)
-        w, h = self._screen
-        position_distance = (
-            ((p_center[0] - c_center[0]) * w) ** 2 + ((p_center[1] - c_center[1]) * h) ** 2
-        ) ** 0.5 / (w ** 2 + h ** 2) ** 0.5
+        # The residual: how far this element moved *within* its group. A member
+        # that rode along with the panel has none, and the panel's own move is
+        # reported once as GROUP_SHIFT.
+        position_distance = self._diagonal_fraction(
+            p_center[0] - c_center[0] - shift[0], p_center[1] - c_center[1] - shift[1]
+        )
         grounded = "vlm_grounded" in (p.metadata.get("bbox_source"), c.metadata.get("bbox_source"))
         bands = self.vlm_grounded_position_bands if grounded else self.position_bands
         if position_distance > bands["pass"]:
-            if position_distance <= bands["fail"]:
-                verdict, severity = REVIEW, None
-            else:
-                verdict, severity = FAIL, MAJOR if position_distance > bands["major"] else MINOR
+            verdict, severity = self._position_verdict(position_distance, bands)
             found.append(
                 Difference(
                     type="POSITION_DIFFERENCE",
@@ -196,6 +242,7 @@ class DifferenceEngine:
                         "production_center": p_center,
                         "client_center": c_center,
                         "distance_of_diagonal": position_distance,
+                        "group_shift": list(shift),
                         "bands": "vlm_grounded" if grounded else "default",
                     },
                     verdict=verdict,

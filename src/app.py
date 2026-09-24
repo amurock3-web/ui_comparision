@@ -62,6 +62,22 @@ def to_pdf(html_path: Path) -> bool:
     return pdf.is_file()
 
 
+def headline(report: dict) -> str:
+    """The one line above the report: how many of the comparable elements paired
+    up, and where the rest went. Counts live in report["summary"]; .get keeps an
+    older report.json (or a field that moves back to the top level) from
+    crashing the page."""
+    s = report.get("summary", {})
+
+    def n(key):
+        return s.get(key, report.get(key, 0))
+
+    matched, missing, extra = n("matched_pairs"), n("missing"), n("extra")
+    return (f"Matched {matched} of {matched + missing + extra} elements "
+            f"({n('similarity_percent')}%) · clean {n('clean_pairs')} · "
+            f"missing {missing} · extra {extra} · ignored {n('ignored')}")
+
+
 def run_comparison(run_dir: Path, prod_path: Path, client_path: Path):
     def stage(name):
         state.update(stage=name, step=STAGES.index(name) + 1)
@@ -69,6 +85,10 @@ def run_comparison(run_dir: Path, prod_path: Path, client_path: Path):
     try:
         prod_doc, prod_graph = build_document(prod_path, screen_id(prod_path.name), "production", stage)
         client_doc, client_graph = build_document(client_path, screen_id(client_path.name), "client", stage)
+        # Saved before matching: scripts.rematch reloads these to redo matching,
+        # differ and report without paying the ~90s detector + OCR pass again.
+        prod_doc.save_json(run_dir / "production_fused.json")
+        client_doc.save_json(run_dir / "client_fused.json")
         stage("Matching")
         match = ElementMatcher().match(prod_doc, client_doc, prod_graph, client_graph)
         differences = DifferenceEngine().compare(prod_doc, client_doc, prod_graph, client_graph, match)
@@ -79,8 +99,9 @@ def run_comparison(run_dir: Path, prod_path: Path, client_path: Path):
                                       run_dir / "report.html", prod_graph, client_graph)
         stage("PDF")
         state["pdf"] = to_pdf(html_path)
-        state["summary"] = {k: report[k] for k in ("verdict", "similarity_percent", "summary", "warnings")}
+        state["summary"] = {k: report.get(k) for k in ("verdict", "similarity_percent", "summary", "warnings")}
         state["summary"]["findings"] = len(report["findings"])
+        state["summary"]["headline"] = headline(report)
     except Exception as e:
         traceback.print_exc()
         state["error"] = f"{type(e).__name__}: {e}"
@@ -223,14 +244,12 @@ async function poll() {
   if (!s.done) return setTimeout(poll, 1000);
   document.getElementById("go").disabled = false;
   if (s.error) return showError(s.error);
-  const m = s.summary, counts = Object.entries(m.summary).filter(([k]) => k !== "total_compared");
+  const m = s.summary;
   const base = "/run/" + s.run + "/report";
   const res = document.getElementById("result"); res.hidden = false;
   res.innerHTML = `<h2><span class="verdict" style="background:${VERDICT[m.verdict]}">${m.verdict}</span></h2>
-   <div class="stats"><div class="stat"><b>${m.similarity_percent}%</b>matched</div>
-   <div class="stat"><b>${m.summary.total_compared}</b>compared</div>
-   <div class="stat"><b>${m.findings}</b>findings</div>
-   ${counts.map(([k, v]) => `<div class="stat"><b>${v}</b>${k.replaceAll("_", " ").toLowerCase()}</div>`).join("")}</div>
+   <div>${m.headline}</div>
+   <div class="stats"><div class="stat"><b>${m.findings}</b>findings</div></div>
    ${s.pdf ? `<a class="btn" href="${base}.pdf" download="report_${s.run}.pdf">Download PDF</a>`
            : `<button onclick="document.querySelector('iframe').contentWindow.print()">Save as PDF</button>`}
    <iframe src="${base}.html"></iframe>`;
