@@ -7,6 +7,16 @@ model-agnostic
 deterministic comparison where possible
 benchmark-driven
 minimal infrastructure for POC
+1a. Detector design
+
+A YOLOv8s model fine-tuned on the 16-class taxonomy (`models/ui16_v1`, 83 train / 20 val
+images, val mAP50 0.877, mAP50-95 0.703) is the primary source of class + geometry. It is
+deterministic, which the VLM grounding was not. Inference settings (imgsz 1280, conf 0.25,
+iou 0.45) come from the bundle's `model_card.json`; `config/detector.yaml` only maps detector
+confidence to tiers (high ≥ 0.70, medium ≥ 0.40). Weak classes (`rank_number`, `text_input`,
+`logo`, 4-6 training instances each) are tagged `low_confidence_class` and treated as
+uncertain until the VLM confirms them.
+
 2. OCR design
 
 Input: PNG/JPG. PaddleOCR returns text, polygon/bbox and confidence.
@@ -22,6 +32,10 @@ Keep low-confidence OCR observations as evidence rather than deleting them immed
 
 3. VLM design
 
+The VLM is now an opt-in fallback: `main.py --vlm` calls it only when detector+OCR fusion
+leaves an `uncertain` element. Status-bar text (clock, battery) is ignored, not uncertain, so it
+does not trigger the VLM.
+
 The VLM receives the screenshot and useful OCR observations, plus the allowed taxonomy. Two
 separate, versioned prompts, not one: `v2_qwen2.5vl_classify_only` (class/text/description/
 approximate_location, no bbox — the default path) and `v3_qwen2.5vl_ground_content_cards`
@@ -35,6 +49,17 @@ Prompt rules: - do not invent elements - identify repeated elements independentl
 The prompt should be versioned.
 
 4. Fusion design
+
+Detector-first (`fuse_detections`, used by `main.py`): detections keep their class/bbox; each
+OCR box is assigned to the smallest detection containing its center; text inside a container
+class (content_card, cast_card, celebrity_card, navigation_bar) stays a child element, text
+inside any other class becomes that element's text. Orphan OCR text, low-tier detections and
+low_confidence_class detections are `uncertain`. The VLM result, when present, classifies
+orphan OCR boxes and confirms uncertain detections — only via `ocr_ref_id` or text similarity,
+never zone-only.
+
+The rest of this section describes the legacy OCR+VLM path (`fuse`), kept for reference.
+
 
 Real geometry comes from OCR wherever possible — the VLM's own per-element bbox output was found
 non-deterministic across repeated calls, disqualifying it for a tool whose job is detecting real
@@ -131,6 +156,13 @@ Do not hard-code severity without project evidence.
 
 Summary:
 
+Similarity counts elements, not Difference records (Phase 12.1): matched pairs / (matched + missing + extra).
+A pair with three sub-differences is one matched element; `clean` = matched pairs with no finding.
+Dynamic content ignored under §H (poster tiles, status bar) stays out of the denominator and is only
+counted as `ignored`. `report["summary"]` holds matched_pairs, clean_pairs, missing, extra, ignored,
+comparable, similarity_percent, clean_percent and difference_records (debug only), plus per-type counts.
+No comparable elements → 0% with a `warning`.
+
 text
 Screen: SS012
 Similarity: 91.4%
@@ -176,10 +208,130 @@ Record: - model - image - resolution - runtime - element count - confidence - ma
 
 16. POC technology set
 
-Python + PaddleOCR + Ollama/Qwen2.5-VL 7B + Pydantic + NetworkX + Pillow is sufficient. No
+Python + YOLOv8 (Ultralytics, separate venv) + PaddleOCR + Ollama/Qwen2.5-VL 7B + Pydantic + NetworkX + Pillow is sufficient. No
 database or large frontend is required. (Qwen3-VL 4B was the original candidate; rejected —
 see `memory.md`'s VLM benchmarking history.)
 
-17. Future hybrid system
+17. Hybrid system (implemented 2026-09-17)
 
-Possible production architecture: fast detector + OCR + local VLM fallback + graph comparison where the detector handles common UI components and the VLM handles uncertain/unseen components
+Detector + OCR + local VLM fallback + graph comparison: the detector handles common UI
+components and the VLM handles uncertain/unseen ones. Next: retrain with more examples of the
+weak classes, and measure the detector on screenshots outside its 103-image training set.
+
+## 18. Class refiner design (parked, rules.md §20)
+
+Goal: fix YOLO confusions (first run: `button` recall 0.58, confused
+with `tab_item`/`overlay_badge`; weak `icon`, `metadata_text`) with a
+second, explainable opinion.
+
+**Input features per box:**
+- Geometry: normalized x, y, w, h, aspect ratio, area
+- OCR: text length, word count, has digits, is empty, regex hits
+  (`S\d+ ?E\d+`, durations like `2h 10m` / `45 min`, `Free`), OCR
+  confidence
+- Context: inside a `content_card`? position inside it (corner /
+  bottom); strongest signal for button vs overlay_badge
+- YOLO: predicted class (one-hot) + confidence (v2 only, see leakage)
+
+**Training data:** ground-truth boxes (after 22→16 remap) from all
+103 images + OCR text whose center lies inside each box → one CSV
+(~2186 rows). Using GT boxes avoids YOLO leakage and uses all data.
+
+**Pitfalls:**
+- Same-screen leakage → split by image (`GroupKFold`, group = image
+  id), never by box
+- YOLO leakage → YOLO-output features only from images YOLO did not
+  train on (val split or k-fold out-of-fold predictions)
+- Class imbalance → `class_weight="balanced"`; results on
+  `rank_number`/`text_input` are directional only
+- Calibration → logistic regression is usually close; LightGBM needs
+  `CalibratedClassifierCV`. Probabilities feed `confidence_tier`
+
+**Model choice:** start with logistic regression (inspectable
+weights → explainable). Try LightGBM + calibration only if it
+plateaus.
+
+**Runtime decision rule (thresholds to tune on held-out images):**
+- YOLO conf ≥ 0.85 and class outside the confusable group → keep YOLO
+- else run refiner:
+  - agrees with YOLO → high confidence
+  - refiner ≥ 0.7 and YOLO not confident → take refiner
+  - otherwise → `UNCERTAIN`, keep both candidates (rules.md §10)
+
+**Stored per element (metadata):** raw YOLO class + conf, refiner
+probabilities, which rule decided, refiner version + thresholds
+(rules.md §15).
+
+**Success metric:** on the confusable group (`button`, `tab_item`,
+`overlay_badge`, `icon`, `metadata_text`), `button` recall rises above
+0.58 without `tab_item` recall dropping. Compare against YOLO-only on
+the same held-out images via confusion matrix.
+
+**Limit:** if two classes look different but share size, position and
+text, features cannot separate them → needs more YOLO data or a VLM
+check on those boxes only.
+
+## 19. Targeted crop OCR design
+
+See architecture.md §4a. Per element crop of a text-bearing class:
+pad a few px, upscale small crops ~2×, run PaddleOCR, attach text +
+confidence + `confidence_tier` directly to that element. Artwork text
+inside cards is not read.
+
+## 20. rank_number rule (proposed)
+
+Derive rank as a card attribute, not a detector class:
+
+A card gets `metadata.rank = N` when:
+- OCR reads an integer 1–10 at the left / bottom-left of a
+  `content_card`, AND
+- the row's `section_title` matches `top\s*10` (case-insensitive), OR
+  the row's cards carry sequential numbers 1, 2, 3, ...
+
+Caveats: stylized outlined rank digits may be misread by OCR;
+localized or differently-worded row titles ("Top Picks") → the
+sequential-number condition covers these. A rank present in Production
+but missing in Client is reported (attribute difference), so the
+information is not lost by dropping the class.
+
+## 21. Color detection design (parked)
+
+1. **Screen background:** mask out all detected boxes, take the
+   mode/median color of the remaining pixels.
+2. **Element fill color:** sample a thin ring just inside the
+   element border (not the full box) so text/icons don't pollute it.
+   For text elements, the OCR box separates text color from fill.
+3. **Gradients / translucent overlays:** store a small palette (top
+   2-3 colors via k-means or histogram), not one value.
+4. **Compare in CIELAB with ΔE (CIEDE2000)**, not RGB distance:
+   ΔE < 2 ≈ not visible, 2-5 ≈ noticeable on close look, > 5 ≈ clear
+   difference. Exact thresholds to be calibrated.
+5. Emits proposed `COLOR_DIFFERENCE` (rules.md §8).
+
+Traps:
+- Dynamic content (poster rotation, personalization, new releases)
+  → compare UI chrome only (nav bar, buttons, tabs, badges,
+  backgrounds), never artwork
+- Capture conditions (dark/light mode, device, JPEG) → capture both
+  sides with the same device and settings, PNG, keep a tolerance
+
+## 22. Other attribute extractors (backlog, by value vs effort)
+
+1. Text color + font size — font size ≈ OCR box height; cheap
+2. Selected/active tab — color-contrast rule vs sibling tabs; high value
+3. Spacing and alignment — from graph gaps / `ALIGNED_WITH` edges
+4. Truncation — text ending in "…" on one side only
+5. Icon identity — perceptual hash (pHash) of the icon crop
+6. Static image identity (logos only) — pHash; skip posters
+
+Build order is decided by frequency in real QA bug tickets
+(rules.md §20), not by this list.
+
+## 23. End-to-end validation with synthetic test pairs
+
+Detector mAP does not measure the product. Build test pairs with known
+answers: copy a real screenshot (e.g. `ss012.png`) and edit the copy —
+delete a badge, change a tab's text, shift a button, recolor a
+button. The report must find exactly those edits. Gives
+precision/recall of **difference detection** for the whole pipeline.
+Every new check/extractor gets its own test pair.

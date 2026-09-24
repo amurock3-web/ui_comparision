@@ -14,12 +14,44 @@ matching:
     spatial: 0.2
     iou: 0.2
     context: 0.1
+  # A whole panel often moves as one piece between two builds: on the SunNXT
+  # language screen the bottom sheet sits ~136 px (0.058) lower in the client
+  # while the header behind it moved only ~10 px. Judged per element that is
+  # six position findings plus 7 of 8 tiles failing to match, because a
+  # text-less card scores ~0.62 once IoU collapses. So the shift is estimated
+  # per layout-graph container from its own matched anchors, reported once,
+  # and subtracted before the second matching pass.
+  # enabled: false reproduces the pre-Phase-12.2 output exactly.
+  group_shift:
+    enabled: true
+    # Below this many anchors a container's shift is not trustworthy, so the
+    # next container up the CONTAINS chain is tried instead.
+    min_anchors: 3
+    # An anchor must be unambiguous: same class plus either near-identical
+    # text or boxes that still overlap.
+    anchor_min_text_score: 0.9
+    anchor_min_iou: 0.5
+    # Median absolute deviation of the anchors' dx/dy. Above this the members
+    # did not move as one piece, so no shift is applied. 0.01 = 10.8 px wide.
+    max_spread_norm: 0.01
 
 comparison:
-  text_similarity_threshold: 0.85
-  position_threshold_norm: 0.02
-  size_ratio_threshold: 0.15
   structural_similarity_threshold: 0.5
+  # PASS/REVIEW/FAIL bands from docs/test_cases_pass_fail.md — proposed
+  # defaults, not yet confirmed by the manager.
+  # C1: center distance as a fraction of the screen diagonal.
+  # <= pass → PASS, <= fail → REVIEW, > fail → FAIL (Major if > major, else Minor).
+  position_bands: {pass: 0.01, fail: 0.03, major: 0.06}
+  # Looser for content_card boxes from VLM grounding (~4% drift observed
+  # between runs on ss012, see memory.md).
+  vlm_grounded_position_bands: {pass: 0.04, fail: 0.08, major: 0.12}
+  # C2: max(width, height) relative change. <= pass PASS, <= fail REVIEW, else FAIL Major.
+  size_bands: {pass: 0.05, fail: 0.15}
+  # E1: label text is compared only for these classes; everything else is
+  # dynamic content (§H). Exact match PASS, one-character slip REVIEW, else FAIL.
+  static_text_classes: [tab_item, button, section_title, search_bar]
+  # B1: missing element of these classes is Critical (others Major).
+  critical_classes: [button, tab_item, navigation_bar, logo]
 
 vlm:
   model: qwen2.5vl:7b
@@ -59,8 +91,41 @@ fusion:
   # Card boxes are grid-inferred (approximate row bounds), so a badge near
   # a card's edge needs generous tolerance to register as "inside" it.
   badge_containment_padding: 40
+  # Detector-first fusion: OCR text in no detection whose center is in this
+  # top fraction of the screen is the phone status bar (clock, battery) —
+  # tagged ignored (test_cases §H) instead of uncertain, so it neither
+  # triggers the VLM nor becomes a REVIEW. 0.04 of 2400px = 96px.
+  status_bar_height_norm: 0.04
 
 graph:
   containment_min_overlap: 0.9
-  alignment_epsilon_norm: 0.01
+  # Was 0.01 (10.8px at 1080 wide), which sat *inside* the detector's own
+  # noise: on ss031 the left card column spans x=9.1..21.6, so a 12.5px
+  # jitter split one column into two alignment groups, and el_0004 came out
+  # ALIGNED_WITH exactly one of its three column-mates (10.1px) but not the
+  # other two (11.8, 12.5px). 0.02 = 21.6px clears the measured jitter.
+  alignment_epsilon_norm: 0.02
   adjacency_max_gap_norm: 0.05
+  # Layout-tree builder (src/graph/layout.py): two boxes share a row/column
+  # band when their spans overlap by at least this fraction of the shorter.
+  band_min_overlap: 0.5
+  # Layout-tree builder: an element within this distance (x image width) of
+  # the content edge or of a navigation_bar / floating overlay is marked
+  # `clipped` (cut off by scroll position). 0.005 of 1080px = ~5px.
+  edge_margin_norm: 0.005
+  # Layout-tree builder: fallback parent when nothing covers an element at
+  # containment_min_overlap. Badges overhanging a card sit 85-86% inside it
+  # (sunnxt_test_ss); floating pills overlap a card by < 50%, so stay out.
+  loose_containment_overlap: 0.75
+  # Layout-tree builder: a child covering >= 2 siblings, each by at least
+  # this share of the smaller box, is a floating overlay (e.g. a chip bar
+  # over a carousel), not a member of their row. The ss031 nav bar's 1px
+  # overlap with the last card row is far below it.
+  float_min_overlap: 0.1
+  # NEAR edges: each node linked to its K nearest neighbours by Euclidean
+  # distance over both bbox corners (graph_paper.pdf §3.2). Threshold-free,
+  # so unlike ALIGNED_WITH it cannot be defeated by detector jitter. The
+  # paper tunes K=6 for desktop and K=5 for mobile; these screens are mobile.
+  # 0 disables. Nothing consumes NEAR yet - it is the substrate for the
+  # paper's recursive neighbour matching (§3.3).
+  knn_k: 5

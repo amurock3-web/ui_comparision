@@ -33,3 +33,44 @@ content_card, nav_item, badge, section_title, button, cast_card, icon, metadata_
 Kept here for historical reference and because the original 103-image label set (YOLO format, Label Studio export, classes.txt/notes.json) uses this 22-class id scheme. The class-remap mapping (old → new) must be applied at UI-JSON conversion time; original label files are not re-annotated in place.
 
 The earlier work referenced 32 GT rules from the previous SunNXT project; per rules.md §1/§11, that set remains reference/evaluation material only and is not part of this taxonomy
+
+### Proposed v3 — three-layer ontology (2026-09-21, UNDER DISCUSSION, NOT LOCKED)
+
+The v2 16-class taxonomy above remains the locked taxonomy. v3 is a
+proposal to revisit **after the MVP runs end-to-end**.
+
+**Principle:** the detector learns only what things *look like*.
+Meaning, position and text become attributes or rules.
+
+| Layer | Holds | Produced by |
+|---|---|---|
+| 1. Visual classes | `navigation_bar`, `tab_item`, `card`, `overlay_badge`, `button`, `icon`, `logo`, `text`, `input_field` | YOLO |
+| 2. Attributes | card `style` (portrait / landscape / circular / banner), card `rank`, text `role` (section_title / title / metadata / description), badge text, tab `selected` | rules on geometry, OCR, context |
+| 3. Structure | sections, rows, grids, parent/child, screen type (home / detail / search / login) | graph (Phase 4) |
+
+**Mapping from existing labels (no re-annotation needed):**
+- `content_card` → `card` (style portrait/landscape by aspect ratio)
+- `cast_card` → `card` (style circular)
+- `celebrity_card` → `card` (style banner)
+- `section_title`, `title`, `metadata_text`, `description` → `text`
+  (role kept as attribute from the original label)
+- `search_bar`, `text_input` → `input_field`
+- `rank_number` → dropped as a class; becomes `card.rank` from rank
+  boxes overlapping cards (design.md §20)
+- `tab.selected` → needs new labels; start as a color-contrast rule
+
+**Why:** fewer classes → more samples per class (e.g. `text` gets
+hundreds, reducing the `metadata_text` 0.71 problem); generalizes
+across OTT apps; `cast_card` vs `celebrity_card` difference is still
+reported as an attribute difference, so the "wrong card type for this
+screen" diagnosis is preserved.
+
+**Cost:** PRD update, new remap in `UI_Detection_model_training`,
+YOLO retrain, attribute rules to write.
+
+### rank_number decision note (2026-09-21)
+
+Proposed: remove `rank_number` as a detector class (4 samples, cannot
+be learned reliably) but keep the information as a card attribute
+derived by rule (only in Top-10 rows). Pending approval together with
+v3.

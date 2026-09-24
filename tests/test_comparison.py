@@ -125,8 +125,17 @@ def test_missing_and_extra_reported():
     differences = DifferenceEngine().compare(prod, client)
 
     types = _types(differences)
-    assert "MISSING_IN_CLIENT" in types
-    assert "EXTRA_IN_CLIENT" in types
+    assert "MISSING_IN_PRODUCTION" in types
+    assert "EXTRA_IN_PRODUCTION" in types
+
+
+def test_status_bar_text_is_ignored():
+    clock = _el("c1", "button", [900, 5, 60, 20], "3:58").model_copy(
+        update={"class_": None, "source": "ocr", "metadata": {"ignored": "status_bar"}})
+    differences = DifferenceEngine().compare(_doc([]), _doc([clock], source="client"))
+
+    assert _types(differences) == ["MISSING_IN_PRODUCTION"]
+    assert differences[0].verdict == "PASS"
 
 
 def test_class_difference_flagged_for_matched_pair():
@@ -148,7 +157,7 @@ def test_text_difference_flagged_for_matched_pair():
 
 
 def test_position_difference_flagged_for_shifted_element():
-    # Shifted just enough to clear position_threshold_norm (0.02) while
+    # Shifted just enough to clear the C1 pass band (1% of diagonal) while
     # staying close enough that class/text/IoU/spatial still add up past
     # minimum_match_score — a bigger shift instead makes the matcher
     # correctly decide these are two unrelated elements (see
@@ -174,8 +183,8 @@ def test_large_shift_is_treated_as_missing_and_extra_not_a_match():
     differences = DifferenceEngine().compare(prod, client)
 
     types = _types(differences)
-    assert "MISSING_IN_CLIENT" in types
-    assert "EXTRA_IN_CLIENT" in types
+    assert "MISSING_IN_PRODUCTION" in types
+    assert "EXTRA_IN_PRODUCTION" in types
     assert "POSITION_DIFFERENCE" not in types
 
 

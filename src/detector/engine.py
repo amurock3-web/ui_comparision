@@ -134,9 +134,17 @@ def load_detector(config_path=DEFAULT_CONFIG_PATH):
     if cfg["engine"] == "gt_stub":
         return GTStubDetector(bundle, **tiers)
     if cfg["engine"] == "yolo":
-        python = os.environ.get(cfg["python_env_var"])
+        # The environment variable wins, so the Linux/GPU box can point at its
+        # own interpreter without editing config; python_path is the checked-in
+        # fallback that lets the scripts run with no shell setup.
+        python = os.environ.get(cfg["python_env_var"]) or cfg.get("python_path")
         if not python:
             raise RuntimeError(f"set {cfg['python_env_var']} to a Python that has ultralytics "
-                               f"(not this paddle environment) - see config/detector.yaml")
+                               f"(not this paddle environment), or give python_path in "
+                               f"config/detector.yaml")
+        if not Path(python).is_file():
+            raise FileNotFoundError(f"detector Python {python!r} does not exist - set "
+                                    f"{cfg['python_env_var']} or fix python_path in "
+                                    f"config/detector.yaml")
         return YOLODetector(bundle, python, **tiers)
     raise ValueError(f"config/detector.yaml: unknown engine {cfg['engine']!r} (gt_stub or yolo)")

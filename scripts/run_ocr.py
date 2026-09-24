@@ -1,11 +1,12 @@
+import sys
 from pathlib import Path
 
 from scripts._test_utils import next_test_number
 from src.ocr.engine import OCREngine
 from src.ocr.visualize import draw_ocr_result
 
-IMAGE_PATH = Path("input/production/ss012.png")
-SCREEN_ID = "ss012"
+IMAGE_PATH = Path(sys.argv[1] if len(sys.argv) > 1 else "input/production/ss012.png")
+SCREEN_ID = IMAGE_PATH.stem
 OUTPUT_DIR = Path("output/ocr")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

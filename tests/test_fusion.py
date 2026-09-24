@@ -303,3 +303,89 @@ def test_section_titles_with_no_text_still_split_cards_into_rows():
     # Trailing row: bounded between title2's bottom (1430) and the image
     # bottom (2000) — 570, also not the full 2000px height.
     assert cards_by_id["vlm_card3"].bbox[3] == H - (title2_bbox[1] + title2_bbox[3])
+
+
+# --- fuse_detections(): detector-first fusion -------------------------------
+
+from src.schema.ui_element import UIElement
+
+
+def _det(id_, class_, bbox, confidence=0.9, tier="high", low_class=False):
+    x, y, w, h = bbox
+    return UIElement(
+        id=id_, **{"class": class_}, bbox=bbox,
+        normalized_bbox=[x / W, y / H, w / W, h / H], center=[x + w / 2, y + h / 2],
+        confidence=confidence, confidence_tier=tier, source="detector",
+        metadata={"bbox_source": "detector", "low_confidence_class": low_class},
+    )
+
+
+def test_detections_take_ocr_text_and_cards_keep_children():
+    dets = [
+        _det("det_000", "tab_item", [100, 100, 200, 60]),
+        _det("det_001", "content_card", [0, 300, 500, 400]),
+        _det("det_002", "overlay_badge", [10, 310, 80, 40]),
+    ]
+    ocr = _ocr_result([
+        _ocr_el("ocr_2", "Shows", [210, 109, 80, 40]),   # 1px higher, same line
+        _ocr_el("ocr_1", "TV", [110, 110, 80, 40]),
+        _ocr_el("ocr_3", "Free", [15, 315, 60, 30]),
+        _ocr_el("ocr_4", "WALTER", [100, 500, 200, 50]),
+        _ocr_el("ocr_5", "12:30", [900, 10, 80, 30]),       # status bar
+        _ocr_el("ocr_6", "Top Picks", [600, 900, 200, 40]),
+    ])
+    doc = FusionEngine().fuse_detections(dets, ocr, screen_id="ss_test")
+    by_ocr = {e.metadata.get("ocr_id"): e for e in doc.elements}
+
+    tab, card, badge = doc.elements[:3]
+    assert tab.text == "TV Shows" and tab.source == "detector"   # reading order
+    assert badge.text == "Free"
+    assert card.text is None
+    assert "ocr_4" not in by_ocr                                 # poster text dropped
+    assert card.metadata["ocr_ids"] == ["ocr_4"]                 # ...but traceable
+    assert by_ocr["ocr_5"].metadata == {"ocr_id": "ocr_5", "ignored": "status_bar"}
+    assert by_ocr["ocr_6"].metadata["match_status"] == "uncertain"
+    assert len(doc.elements) == 5
+
+
+def test_low_confidence_detection_uncertain_until_vlm_confirms():
+    dets = [_det("det_000", "logo", [0, 0, 300, 100], low_class=True),
+            _det("det_001", "button", [0, 500, 300, 100], confidence=0.2, tier="low")]
+    ocr = _ocr_result([_ocr_el("ocr_1", "SunNXT", [20, 20, 200, 60]),
+                       _ocr_el("ocr_2", "Trending", [500, 900, 200, 60])])
+    fusion = FusionEngine()
+
+    doc = fusion.fuse_detections(dets, ocr, screen_id="ss_test")
+    assert doc.elements[0].metadata["match_status"] == "uncertain"
+    assert doc.elements[1].metadata["match_status"] == "uncertain"
+
+    vlm = _vlm_result([_vlm_el("vlm_1", "logo", ocr_ref_id="ocr_1"),
+                       _vlm_el("vlm_2", "section_title", text="Trending")])
+    doc = fusion.fuse_detections(dets, ocr, vlm, screen_id="ss_test")
+    logo, button, orphan = doc.elements
+    assert "match_status" not in logo.metadata and logo.metadata["vlm_confirmed"] == "vlm_1"
+    assert button.metadata["match_status"] == "uncertain"       # nothing confirmed it
+    assert orphan.class_ == "section_title" and orphan.source == "fused"
+    assert "match_status" not in orphan.metadata
+    assert "match_status" not in dets[0].metadata                # inputs untouched
+
+
+def test_low_tier_card_does_not_swallow_tab_text():
+    # ss012: the floating tab bar overlays a real poster card (smaller than the
+    # tab) and a false 0.32 content_card; neither may take the tab labels.
+    dets = [_det("det_000", "tab_item", [180, 1000, 700, 100]),
+            _det("det_001", "content_card", [330, 1000, 550, 105], confidence=0.32, tier="low"),
+            _det("det_002", "content_card", [30, 950, 300, 300])]
+    ocr = _ocr_result([_ocr_el("ocr_1", "Movies", [200, 1030, 100, 40]),
+                       _ocr_el("ocr_2", "Live TV", [400, 1030, 100, 40]),
+                       _ocr_el("ocr_3", "More", [700, 1030, 100, 40]),
+                       _ocr_el("ocr_4", "WALTER", [50, 1200, 100, 40]),
+                       _ocr_el("ocr_5", "Soon", [500, 1070, 40, 20])])
+    doc = FusionEngine().fuse_detections(dets, ocr, screen_id="ss_test")
+    tab, false_card, poster = doc.elements[:3]
+    by_ocr = {e.metadata.get("ocr_id"): e for e in doc.elements}
+    assert tab.text == "Movies Live TV More Soon"
+    assert false_card.metadata["ignored"] == "overlapped_by_higher_confidence"
+    assert "match_status" not in false_card.metadata
+    assert "ocr_4" not in by_ocr and poster.metadata["ocr_ids"] == ["ocr_4"]
+    assert len(doc.elements) == 3
