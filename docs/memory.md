@@ -612,4 +612,207 @@ pass with the **same 15 pre-existing failures** (14 `test_fusion.py`, 1 `test_gr
 - `numpy` and `opencv-contrib-python` are **not in `requirements.txt`** — present only
   transitively via paddleocr. Pin them before this ships.
 - Not built: A4, B6, B7, C3, D3, D4, D6, D7, E2, E4-E7, F1-F4, G1-G3.
-- `make_benchmark` / `run_benchmark` still never run.
+- ~~`make_benchmark` / `run_benchmark` still never run.~~ Run three times on 2026-09-24; see below.
+
+## Phase 13.1 — benchmark-driven noise cuts — 2026-09-24/25
+
+The known-defect benchmark (22 cases: 19 defect, 3 identity) was run three times during Phase 13
+(`output/benchmark/test1..3_benchmark/results.json`):
+
+| run | caught | caught as other | missed | identity clean | false alarms | false alarms by type |
+|---|---|---|---|---|---|---|
+| test1 | 9 | 8 | 2 | 3/3 | 26 | B5 18, C2 5, B1 2, B4 1 |
+| test2 | 12 | 5 | 2 | 3/3 | 27 | B5 18, C2 5, B1 2, B4 1, D1 1 |
+| test3 | 13 | 4 | 2 | 3/3 | 15 | B5 6, C2 5, B1 2, B4 1, D1 1 |
+
+The two misses are F3 (check not built). test3 still showed three problems, each fixed in the
+differ afterwards (config under `comparison` / `comparison.layout`, all default on):
+
+- **A1 buried in noise.** A rotated screen reported A1 plus every element as moved/resized
+  (A5/B1/B2/B9/C1/C2) — all true, all artefacts of the rotation. Screen-level checks now run
+  first; a Critical FAIL (A1, A2) stops the comparison and emits one `ELEMENT_COMPARISON_SKIPPED`
+  record (spec id `info`, REVIEW) naming why. A3/A5 are Major and never stop it.
+  `stop_on_critical_screen_failure`.
+- **B5 collateral.** Removing one tab un-aligns its neighbours, so one removal read as B1 + two B5.
+  An `ALIGNMENT_DIFFERENCE` is now dropped when any of its elements is already named by a
+  MISSING/EXTRA/POSITION/SIZE/GROUP_SHIFT finding (`layout.drop_alignment_collateral`). And since
+  `ALIGNED_WITH` is a chain, one broken column gave one B5 per link; same-axis rows sharing an
+  element are merged into one finding with the worst offset (`layout.merge_alignment_chains`).
+- **B4 swaps caught as E1.** On a tab swap the matcher paired by position on two of three screens,
+  so the order looked intact and it read as two label changes. `layout_checks._swapped_labels`
+  now finds matched items in one bar whose production and client texts are exchanged and reports
+  B4 regardless of pairing; the report says "X and Y have traded places".
+
+**Not yet measured.** The benchmark has not been re-run since these changes; re-score from the
+saved per-case fused docs with `scripts/rematch` before paying for a full run. Tests not run either.
+
+## Phase 14 — Applitools-style ideas — 2026-09-25
+
+Plan: `phase14_applitools_ideas_prompts.md` (outside the repo). The two pure modules were written
+by subagents in isolated worktrees; wiring into differ/report/config was done inline in one pass
+(the Phase 13 split). **Nothing below has been run** — no pytest, no rematch, no benchmark — so
+there are no before/after numbers yet.
+
+- **14.1 status bar: diagnosed, no code.** Scanned all 56 saved fused JSONs: every status-bar
+  string is already `ignored="status_bar"` (e.g. `section_title "16:01 redBus O"`, 100% inside the
+  band). The Phase 12 "leak" does not reproduce on any saved doc, so `ignore_regions` / `regions.py`
+  was not built. The one near-top unignored text is "VILLAN" (ss012, 38% in the band), a real title.
+- **14.0 nested GROUP_SHIFT merge** (`differ._merged_shift_chains`, `matching.group_shift.merge_nested`).
+  A container whose shift matches its nearest shifted ancestor's (within `max_spread_norm`) is one
+  move; reported once under the outermost non-root container, with `merged_groups`. Anchors are the
+  chain's max, not sum — anchors vote in every container above them. Expected on the lang pair:
+  `screen` + `grp_0004` → one sheet shift; header stays separate.
+- **14.2 pixel-verified size** (`src/comparison/pixel_geometry.py`, `comparison.pixel_verify`).
+  Every SIZE finding now carries `details.pixel_check` (tight-box sizes, ratio diffs, reliable,
+  confirmed). **`enabled: false`**: measuring only. Next step is to read the pixel_check values off
+  a rematch of both pairs, agree thresholds, then enable (drops a finding when both sides are
+  reliable and agree within `size_bands.pass`).
+- **14.3 issue grouping** (`src/reporting/grouping.py`, `reporting.group_findings: true`). Report
+  gains `issues` + `summary.issues`; HTML shows an Issues table above Findings when grouping
+  collapses anything. Findings, verdict and similarity unchanged. The 12 D1 findings may land in
+  more than one issue: the key includes class, and colours must be within D1's pass band (dE 3).
+- **Not done:** 14.4 accepted differences (deferred until runs are reviewed regularly), 14.5
+  see-through chrome (measure-only, optional).
+- New tests (not run): `tests/test_group_shift.py` (+5), `tests/test_pixel_geometry.py`,
+  `tests/test_grouping.py`.
+
+**14.2 margin measured (2026-09-25, rematch, `enabled: false` throughout).** 15 SIZE findings over
+both pairs; "would drop" = both sides reliable and pixel diff <= `size_bands.pass` 0.05.
+
+| margin_frac / min_px | would drop | notes |
+|---|---|---|
+| 0.15 / 4 (first try) | 2 (X, Free) | pixel diff often *bigger* than box: Search 0.057 -> 0.207 h, TV Shows 0.027 -> 0.156 h; crop pulled in neighbours |
+| **0.05 / 2 (kept)** | **4** (Sun NXT, X, Profile, Free) | pixel diff tracks the box on the rest; Search 0.248 -> 0.187 |
+| 0.0 / 0 | 2 (X, Free) | tab crops have no background ring: 4 of 5 lang tabs unreliable |
+
+Reading: at 0.05 the pixel check agrees with the box on most remaining findings (SUN NT Home
+0.174/0.168, TV Shows 0.265/0.258, Select-the-languages 0.161/0.140), so those look like real size
+differences between the mockup and production, not detector wobble. Downloads (0.075/0.077) and
+Live TV (0.143/0.151) too. Still `enabled: false`; switching it on would remove 4 of 15.
+
+**Decisions 2026-09-25:** `pixel_verify.enabled: true` (expected: home pair drops Profile and Free,
+lang pair drops Sun NXT and X; not yet confirmed by a rematch). **14.5 not adopted:** the verdict on
+the home pair is FAIL regardless, the colour is sampled from tab items whose icon and label would
+read as "texture" on solid chrome too, and a human glance at the 12 D1 findings settles them more
+cheaply than a heuristic.
+
+## Phase 15/16 Wave 1 — new checks + launcher — 2026-09-25
+
+Plan: `phase15_features_and_ui_prompts.md` (outside the repo), built in waves because most prompts
+share differ.py / config.yaml / app.py and several depend on each other. Wave 0 ran the suite and a
+rematch first and found one real bug: `grouping.py` crashed on findings without the usual details
+(now left ungrouped, with a test). Wave 1 = five parallel worktree agents writing only new files,
+wired in afterwards in one pass. Full suite: 165 pass, the same 15 pre-existing failures.
+
+- **F3 broken image** (`image_checks.flatness`, `comparison.image`): production card with luminance
+  std <= 5 and edge density <= 0.01, unless the matched design card is flat too. Measured: every
+  benchmark blank_poster card std 0.0/edges 0.0; flattest real card anywhere std 17.4 (production
+  27.2). Rematch: **all 3 blank_poster cases now caught** (the benchmark's two misses + one
+  caught-as-other), all 3 identity cases still clean.
+- **F1/F2 logo/icon** (SSIM, bands from the spec): wired, but idle — no detection on the SunNXT
+  pairs is class `logo` or `icon`.
+- **D7 contrast / D3 text colour** (`contrast_checks`, `comparison.contrast`): k-means text split,
+  WCAG ratio; passes at 4.5:1 or when production >= design ratio - 0.5. Skipped over artwork and on
+  unreliable splits. Measured on matched static text: lang pair "SUNNXT SHORTS" 1.29:1 vs design
+  2.63:1, text dE 12.3 (D7 FAIL + D3 FAIL); home pair "Profile" text dE 5.1 (D3 REVIEW). Everything
+  else passes. WCAG's large-text rule not applied (box height includes icons).
+- **E4 language** (`script_checks`, `comparison.language`): matched label with a different dominant
+  script -> Critical, instead of E1. No findings on the real pairs (same-language builds). The
+  language picker is 50% Latin, so a screen-level script is None there — no screen-level E4 built.
+- **15.6 ticket export**: `python -m scripts.export_tickets <report.json>` -> UTF-8-BOM CSV, one
+  row per issue; columns in `config/ticket_export.yaml` still need the team's real sheet columns.
+- **16.0 launcher**: `UI Compare.bat`, `start.sh`, `scripts/make_shortcut.ps1`, `src/health.py`
+  (`GET /health`, chips in the page), `--port` with fallback, `--no-browser`. Not launched yet.
+
+## Phase 15/16 Wave 2 + 14.4 — rules, levels, app pages, acceptances — 2026-09-25
+
+- **15.0 match levels + regions** (`src/comparison/regions.py`, `comparison.match_levels`). STRICT /
+  LAYOUT (skip D, E, F) / IGNORE_COLORS (skip D) / NONE. Most specific wins: smallest covering
+  region (>= min_overlap of the element) > `config/screen_rules/<client screen id>.yaml` > default.
+  The status-bar band is a default NONE region (14.1 folded in; one mechanism). A skipped finding
+  becomes PASS with `details.ignored = "match level X"`; coverage says "skipped (X)", never PASS.
+  STRICT with no rules file gives byte-identical findings (no MATCH_LEVEL record is added then).
+  `scripts.rematch --match-level LAYOUT` on the lang pair: 23 -> 17 findings (D/E/F skipped).
+- **15.1 dynamic text + floating regions.** E1 compares a value's FORMAT when the design text fully
+  matches a pattern (duration, episode, price, date); production matching none -> E1 FAIL with
+  `expected_format`. The prompt's `rating` and `count` patterns were dropped: `count` matches any
+  bare number and `rating` matched OCR noise ("A"). Checked against every saved OCR text: no
+  static-text label matches any pattern yet, so this is idle on today's screens. FLOATING regions
+  widen C1's bands for elements inside to `max_offset_norm` (fraction of the diagonal).
+- **Bug found and fixed:** every config reader used `read_text()` without an encoding, i.e. cp1252
+  on Windows; the ₹ in the price pattern came out garbled. All seven `config.yaml` readers now read
+  UTF-8.
+- **16.1 app package** (subagent): `src/app/` (server, runs, static JS/CSS), pages Compare / History
+  / Help / Results, `GET /api/runs`, whitelisted file serving.
+- **14.4 accepted differences** (`src/comparison/accepted.py`, `scripts/accept_finding.py`,
+  `comparison.accepted_differences`). Entry keyed by client screen + type + class + text + centre
+  (±0.02) + signature (production text / production colour within D1's pass band). Report gains
+  `client_screen`, per-finding `production_bbox_norm` / `client_bbox_norm` / `client_center_norm`,
+  `accepted`, `stale_acceptances`, `summary.accepted`. End-to-end check: accepting the lang pair's
+  "SUNNXT" E3 finding took it from 23 to 22 findings on the next rematch (temp file removed after).
+- Full suite: 191 pass, the same 15 pre-existing failures.
+- **15.5 baseline library, batch, history** (subagent): `src/baselines.py` (baselines/<screen>/<device>/
+  <language>/ with client image, client_fused.json, meta.json; device from aspect ratio),
+  `scripts/add_baseline.py` (~45-90 s, runs detector+OCR on the design once; `--list` instant),
+  `scripts/run_comparison.py --baseline <key>` (~45 s: production only), `scripts/run_batch.py`
+  (resumable, one failure never stops it, summary.json/html with new/fixed counts),
+  `src/reporting/history.py` (new / fixed / still_open by type + client id + signature),
+  `src/pipeline.compare_documents` (shared graph->match->differ->report; checked in-process on the
+  lang pair: same 23 findings as rematch). Staleness hash narrowed (by me) to detector.yaml + the
+  ocr/fusion/vlm sections of config.yaml: comparison thresholds change often and are applied at
+  compare time, so hashing the whole file would have marked every baseline stale on any tweak.
+  No baseline has been added for real yet.
+- **16.2 results page + 16.4 rules editor** (subagent, `src/app/actions.py`, `results.js`,
+  `rules.js`): canvas side-by-side with click-to-highlight, issue cards with verdict/family
+  filters, Accept / Ignore region / Mark as bug (each logged in `<run>/actions.json` and undoable;
+  ignore-region and rules saves keep timestamped `.bak` backups), in-process Re-check with a
+  match-level dropdown writing `report_N.json/html` (never overwrites), downloads incl. tickets CSV.
+  Rules page: draw/move/resize regions on the client image, match level, dynamic-text patterns with
+  a test-against-OCR button, validated save, "Try on last run" before/after counts. Runs made
+  before today have no `*_bbox_norm`, so boxes appear only after a Re-check. Not clicked through
+  in a browser yet.
+- **16.3 baselines + batch pages + job queue** (subagent, `src/app/jobs.py`, `library.py`,
+  `library.js`): FIFO queue with visible positions (one job at a time; replaces the 409), Baselines
+  page (add via queue, delete archives meta + fused to baselines/_archive/), Compare with a saved
+  baseline (production-only detector+OCR), Batch page (auto-pair, per-row override, unpaired rows
+  not run, live table), Results history strip (new / fixed / still open vs the previous run of the
+  same screen). Batch table lives in memory only (lost on restart; the runs stay in History).
+- **Final check 2026-09-25:** full suite 222 pass, the same 15 pre-existing failures (14
+  test_fusion, 1 test_graph). Rematch: lang pair FAIL 62.1%, home pair FAIL 50.0%, self-compare
+  PASS 100%. Not done: no browser click-through of the app, no real add_baseline / batch / benchmark
+  run, ticket columns still defaults.
+
+## Phase 14b — false-alarm fixes from the Trending Search run — 2026-09-25
+
+Run `output/app/20260925_145307` (production `sunnxt_live_search` vs design `sunnxt_pre_search`):
+FAIL, 29 findings, about 19 of them false. Split: three subagents on disjoint files (F6 PDF print
+CSS, F7 real benchmark case, F4 `text_cleanup.py`), the shared matcher/differ/layout work inline.
+
+| step | Trending Search findings |
+|---|---|
+| before | 29 (FAIL) |
+| F1 badges on a card are dynamic | 17 |
+| F2 rescue pass 3 | 20 (search bar matched once, but its own E1/D3 appeared) |
+| F3 + F4 + F5 + layout clip fix + unread-text rule | **16 (FAIL)** |
+
+- **F1** `_is_dynamic`: >= `graph.loose_containment_overlap` of the box on a poster card = dynamic,
+  since fusion gives detector badges no parent (all 12 badges had `parent_id` None).
+- **F2** `matcher._rescue`: same-class leftovers within 0.03 of the diagonal, each other's nearest by
+  a margin, AT LEAST ONE SIDE LABELLED (text-less cards in a grid paired with their neighbour at
+  0.0297 in the first version — caught by test_group_shift). Near-ties -> REVIEW (`ambiguous`).
+- **Clip root cause** (`layout._mark_clipped`): an element whose centre lies inside an occluder is
+  part of it, not behind it — the Home tab's icon pokes above the nav bar and was flagged clipped.
+- **F3** FAILs on clipped elements -> REVIEW (original kept in details); B8 on poster cards REVIEW.
+- **F4** text-only glyph cleanup in E1 and the matcher's text score ("9 Languages" -> "Languages").
+- **E1 on an unread label** (one side no OCR text) is REVIEW "no text read on one side", not FAIL.
+- **F5** D3/D7 need text on both sides, skip exact logo labels (`contrast.logo_wordmarks`), and on
+  a tab_item measure only the bottom `tab_text_band` (0.4). Search-tab D3 kept (now REVIEW).
+- **F6** print CSS: the side-by-side image is on page 1 (was pushed to page 2); thead repeats.
+- **F7** `input/benchmark/real/trending_search/` + `python -m scripts.run_benchmark --real-only`
+  (~10 s, cached fused JSONs): **0 false alarms, 0 misses, 3 unlisted** (search bar C1/C2/E1
+  REVIEW); verdict FAIL vs expected REVIEW. The two FAILs left are D1 on the Home logo (production
+  rgb(166,67,88) vs design rgb(133,79,89)) and C2 on the Search tab (+24% height: the design has a
+  selected-state dot production lacks) — both look like real differences; the manifest's
+  expected REVIEW may be what needs changing. Human call.
+- Other pairs: lang 23 -> 21, home 41 -> 38 (badges on cards), self-compare PASS 100%.
+- Full suite: 272 pass, the same 15 pre-existing failures.

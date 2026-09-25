@@ -51,6 +51,14 @@ pre { background:var(--card); border:1px solid var(--line); border-radius:6px; p
 @media (max-width:700px) { .trees { grid-template-columns:1fr; } }
 details { margin-top:28px; } summary { cursor:pointer; font-weight:600; font-size:17px; }
 .legend span { margin-right:14px; }
+@media print {
+  body { max-width:none; padding:0; }
+  /* whole side-by-side fits under the header on page 1 instead of jumping to page 2 */
+  img.shot { display:block; margin:0 auto; width:auto; height:auto; max-width:100%; max-height:62vh; object-fit:contain; }
+  tr, .stats, .note { break-inside:avoid; }
+  thead { display:table-header-group; }
+  h2 { break-after:avoid; }
+}
 """
 
 
@@ -90,6 +98,25 @@ def _reason(f) -> str:
         return f"{what} is in production but not in the client design."
     if t == "CLASS_DIFFERENCE":
         return f"Detected as {d['production_class']} in production, {d['client_class']} in the design."
+    if t == "LANGUAGE_DIFFERENCE":
+        return (f'Wrong language: "{d["production_text"]}" ({d["production_script"]}) in production, '
+                f'"{d["client_text"]}" ({d["client_script"]}) in the design.')
+    if t == "CONTRAST_DIFFERENCE":
+        return (f"Text contrast {d['production_ratio']}:1 in production "
+                f"(design {d['client_ratio']}:1, WCAG AA needs 4.5:1).")
+    if t == "TEXT_COLOR_DIFFERENCE":
+        return (f"Text colour differs by dE {d['delta_e']}: rgb{tuple(d['production_rgb'])} "
+                f"in production vs rgb{tuple(d['client_rgb'])} in the design.")
+    if t in ("LOGO_DIFFERENCE", "ICON_DIFFERENCE"):
+        what = "Logo" if t == "LOGO_DIFFERENCE" else "Icon"
+        return f"{what} looks different from the design (SSIM {d['ssim']})."
+    if t == "BROKEN_IMAGE":
+        return "Card image looks empty or failed to load (almost flat area)."
+    if t == "ELEMENT_COMPARISON_SKIPPED":
+        why = ", ".join(x.replace("_", " ").lower() for x in d["because"])
+        return (f"Elements were not compared: the two screens are not comparable ({why}). "
+                f"Production has {d['production_elements']} elements, the design "
+                f"{d['client_elements']}.")
     if t == "ORIENTATION_DIFFERENCE":
         return (f"Screen orientation differs: {d['production']['orientation']} in production, "
                 f"{d['client']['orientation']} in the design.")
@@ -109,6 +136,13 @@ def _reason(f) -> str:
     if t == "BACKGROUND_COLOR_DIFFERENCE":
         return (f"Page background differs by dE {d['delta_e']}: rgb{tuple(d['production_rgb'])} "
                 f"in production vs rgb{tuple(d['client_rgb'])} in the design.")
+    if t == "TAB_ORDER_DIFFERENCE" and d.get("swapped_labels"):
+        pairs = "; ".join(f'"{a}" and "{b}" have traded places' for a, b in d["swapped_labels"])
+        return f"Tabs are swapped: {pairs}."
+    if t == "SIZE_DIFFERENCE" and (d.get("pixel_check") or {}).get("confirmed"):
+        pc = d["pixel_check"]
+        return (f"Size differs, confirmed by pixels: width {pc['width_ratio_diff']:.0%}, "
+                f"height {pc['height_ratio_diff']:.0%} apart.")
     if t in ("SECTION_ORDER_DIFFERENCE", "TAB_ORDER_DIFFERENCE"):
         moved = ", ".join(
             f'"{m["label"]}" is #{m["client_index"] + 1} in the design but '
@@ -220,11 +254,23 @@ def write_html_report(report, production_image, client_image, production_doc, cl
                "<span>thick coloured box = finding, labelled with its type</span></div>")
     out.append(f"<img class='shot' src='{_b64_png(Image.open(side_by_side))}' alt='production and client side by side'>")
 
+    issues = report.get("issues")
+    if issues and len(issues) < len(report["findings"]):
+        out.append(f"<h2>Issues</h2><p class='muted'>{len(report['findings'])} findings in "
+                   f"{len(issues)} issues. Repeats of one difference are grouped here; "
+                   "every finding is still listed below.</p>"
+                   "<table><thead><tr><th>Test</th><th>Verdict</th><th>Issue</th></tr></thead>")
+        for i in issues:
+            sev = f" &middot; {esc(i['severity'])}" if i["severity"] else ""
+            out.append(f"<tr><td><b>{esc(str(i['spec_id']))}</b></td>"
+                       f"<td>{_pill(i['verdict'])}{sev}</td><td>{esc(i['summary'])}</td></tr>")
+        out.append("</table>")
+
     out.append("<h2>Findings</h2>")
     if not report["findings"]:
         out.append("<p class='muted'>No REVIEW or FAIL findings.</p>")
     else:
-        out.append("<table><tr><th>Test</th><th>Verdict</th><th>What</th><th>Production &middot; Design</th></tr>")
+        out.append("<table><thead><tr><th>Test</th><th>Verdict</th><th>What</th><th>Production &middot; Design</th></tr></thead>")
         for f in report["findings"]:
             p = prod_by_id.get(f["production_id"])
             c = client_by_id.get(f["client_id"])
@@ -234,6 +280,9 @@ def write_html_report(report, production_image, client_image, production_doc, cl
                 crops += (f"<span><img src='{src}' alt='{label} crop'><br>{label}</span>" if src
                           else f"<span>(none in {label})</span> ")
             flag = _node_flag(production_graph, f["production_id"]) or _node_flag(client_graph, f["client_id"])
+            if (f.get("details") or {}).get("capped"):
+                flag += f" Capped to REVIEW (was {f['details'].get('original_verdict')} " \
+                        f"{f['details'].get('original_severity') or ''}): element is cut off."
             sev = f" &middot; {esc(f['severity'])}" if f["severity"] else ""
             out.append(f"<tr><td><b>{esc(f['spec_id'])}</b></td><td>{_pill(f['verdict'])}{sev}</td>"
                        f"<td>{esc(_reason(f))}<span class='muted'>{esc(flag)}</span><br>"
@@ -244,7 +293,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
 
     out.append("<h2>Coverage</h2><p class='muted'>Every test case in docs/test_cases_pass_fail.md. "
                "\"not built\" means this report says nothing about it.</p>"
-               "<table><tr><th>ID</th><th>Check</th><th>Status</th><th>Result here</th></tr>")
+               "<table><thead><tr><th>ID</th><th>Check</th><th>Status</th><th>Result here</th></tr></thead>")
     for c in coverage:
         status_color = {"checked": "#1f9d55", "applied": "#2563eb"}.get(c["status"], "#8d96a0")
         out.append(f"<tr><td>{esc(c['id'])}</td><td>{esc(c['check'])}</td>"
@@ -260,7 +309,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
     rows = {"production": {**conf["production"], **_layout_counts(production_graph)},
             "client design": {**conf["client"], **_layout_counts(client_graph)}}
     keys = list(rows["production"])
-    out.append("<table><tr><th></th>" + "".join(f"<th>{esc(k)}</th>" for k in keys) + "</tr>")
+    out.append("<table><thead><tr><th></th>" + "".join(f"<th>{esc(k)}</th>" for k in keys) + "</tr></thead>")
     for side, vals in rows.items():
         out.append(f"<tr><td><b>{side}</b></td>" + "".join(f"<td>{vals.get(k, '')}</td>" for k in keys) + "</tr>")
     out.append("</table>")

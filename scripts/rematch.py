@@ -63,6 +63,9 @@ def main():
     parser.add_argument("client_json", type=Path)
     parser.add_argument("--production-image")
     parser.add_argument("--client-image")
+    parser.add_argument("--rules", help="screen rules YAML (default: config/screen_rules/<client screen id>.yaml)")
+    parser.add_argument("--match-level", choices=["STRICT", "LAYOUT", "IGNORE_COLORS"],
+                        help="override the screen's match level")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,7 +75,7 @@ def main():
     prefix = f"test{next_test_number(OUTPUT_DIR)}_{production_doc.screen_id}"
 
     match_result = ElementMatcher().match(production_doc, client_doc, production_graph, client_graph)
-    differences = DifferenceEngine().compare(
+    differences = DifferenceEngine(rules_path=args.rules, match_level=args.match_level).compare(
         production_doc, client_doc, production_graph, client_graph, match_result,
         production_image=production_image, client_image=client_image,
     )

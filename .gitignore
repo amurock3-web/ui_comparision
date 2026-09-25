@@ -16,3 +16,6 @@ input/
 .pytest_cache/
 graphify-out/
 .claude/
+
+# Baseline library: client design images stay local; fused/meta JSON may be committed
+baselines/**/client.*

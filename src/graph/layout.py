@@ -77,7 +77,7 @@ def _rel(b, pb):
 
 class LayoutGraphBuilder:
     def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
-        full = yaml.safe_load(Path(config_path).read_text())
+        full = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
         cfg = full.get("graph", {})
         self.containment_min_overlap = cfg.get("containment_min_overlap", 0.9)
         self.loose_containment_overlap = cfg.get("loose_containment_overlap", 0.75)
@@ -365,9 +365,16 @@ class LayoutGraphBuilder:
             x, y, w, h = geo[i]
             clipped = x <= m or y <= top + m or x + w >= W - m or y + h >= H - m
             if not clipped:
+                # An element whose centre lies inside the occluder is part of
+                # it (a nav tab whose icon pokes above the bar), not hidden
+                # behind it. Trending Search: the "Home" tab was flagged
+                # clipped and every finding on it carried a false-alarm note.
+                cx, cy = x + w / 2, y + h / 2
                 grown = _rect([x - m, y - m, w + 2 * m, h + 2 * m])
                 clipped = any(
-                    grown.intersects(_rect(geo[o]))
+                    not (geo[o][0] <= cx <= geo[o][0] + geo[o][2]
+                         and geo[o][1] <= cy <= geo[o][1] + geo[o][3])
+                    and grown.intersects(_rect(geo[o]))
                     and _containment_overlap(geo[o], geo[i]) < self.containment_min_overlap
                     and _containment_overlap(geo[i], geo[o]) < self.containment_min_overlap
                     for o in occluders)

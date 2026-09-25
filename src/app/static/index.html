@@ -1,0 +1,142 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>UI Comparison</title>
+<link rel="stylesheet" href="/app.css"></head><body>
+<header><div class="in">
+ <span class="brand">UI Comparison</span>
+ <nav><a href="#/compare" data-page="compare">Compare</a><a href="#/history" data-page="history">History</a><a href="#/baselines" data-page="baselines">Baselines</a><a href="#/batch" data-page="batch">Batch</a><a href="#/rules" data-page="rules">Rules</a><a href="#/help" data-page="help">Help</a></nav>
+ <div class="chips" id="chips"></div>
+</div></header>
+<main>
+<div id="fixes"></div>
+
+<section id="page-compare" hidden>
+ <h1>Compare</h1>
+ <div class="muted">Drop the production screenshot and the client design, then press Compare. Everything stays on this machine.</div>
+ <div class="tools" role="radiogroup" aria-label="Client side">
+  <b>Client:</b>
+  <label><input type="radio" name="cmode" value="upload" checked> upload an image</label>
+  <label><input type="radio" name="cmode" value="baseline"> use a saved baseline</label>
+ </div>
+ <div class="tools" id="bpick" hidden>
+  <input id="bsearch" type="search" placeholder="Search baselines" aria-label="Search baselines">
+  <select id="bselect" aria-label="Baseline"></select>
+  <span class="muted">Only production runs detector + OCR: about half the time.</span>
+ </div>
+ <div class="drops">
+  <label class="drop" id="drop-production"><b>Production</b><span class="muted">drop image or click to browse</span>
+   <input type="file" accept="image/*" hidden></label>
+  <label class="drop" id="drop-client"><b>Client design</b><span class="muted">drop image or click to browse</span>
+   <input type="file" accept="image/*" hidden></label>
+ </div>
+ <button id="go" disabled>Compare</button>
+ <section id="progress" hidden><div class="bar"><div id="fill"></div></div><div id="stage" class="muted"></div></section>
+ <section id="result" hidden></section>
+</section>
+
+<section id="page-results" hidden></section>
+
+<section id="page-baselines" hidden>
+ <h1>Baselines</h1>
+ <div class="muted">Client designs run through detector + OCR once and stored in <code>baselines/&lt;screen&gt;/&lt;device&gt;/&lt;language&gt;/</code>, so a comparison only pays for the production side. A stale baseline was built under other detector/OCR settings: re-add it.</div>
+ <div class="drops one">
+  <label class="drop" id="drop-baseline"><b>Client design</b><span class="muted">drop image or click to browse</span>
+   <input type="file" accept="image/*" hidden></label>
+  <div class="form">
+   <label>Screen id <input id="bscreen" required placeholder="home"></label>
+   <label>Device <select id="bdevice"><option value="">auto</option><option>phone</option><option>tablet</option><option>tv</option></select></label>
+   <label>Language <input id="blang" placeholder="default"></label>
+   <button id="badd" disabled>Add baseline</button>
+   <div id="bmsg"></div>
+  </div>
+ </div>
+ <div class="table-wrap"><table>
+  <thead><tr><th></th><th>Screen</th><th>Device</th><th>Language</th><th>Created</th><th>State</th><th></th></tr></thead>
+  <tbody id="blist"></tbody>
+ </table></div>
+</section>
+
+<section id="page-batch" hidden>
+ <h1>Batch</h1>
+ <div class="muted">Drop many production screenshots. Each is paired with a baseline by file name (or by the longest screen id its name starts with); change it per row. Rows with no baseline are not run. Every item becomes a normal run in History.</div>
+ <label class="drop small" id="drop-batch"><b>Production screenshots</b><span class="muted">drop images or click to browse</span>
+  <input type="file" accept="image/*" multiple hidden></label>
+ <div class="tools">
+  <label>Pair by <select id="bby"><option value="filename">file name = screen id</option><option value="screen-id">screen id prefix</option></select></label>
+  <button id="bstart" disabled>Start</button>
+  <a class="btn ghost" id="bsummary" hidden>Download summary (JSON)</a>
+ </div>
+ <div class="table-wrap"><table>
+  <thead><tr><th>File</th><th>Baseline</th><th>Status</th><th>Verdict</th><th>Similarity</th><th>Issues</th><th></th></tr></thead>
+  <tbody id="brows"></tbody>
+ </table></div>
+</section>
+
+<section id="page-history" hidden>
+ <h1>History</h1>
+ <div class="tools">
+  <input id="search" type="search" placeholder="Search run, date or file name" aria-label="Search">
+  <select id="vfilter" aria-label="Verdict"><option value="">All verdicts</option><option>PASS</option><option>REVIEW</option><option>FAIL</option><option value="-">No report</option></select>
+ </div>
+ <div class="table-wrap"><table>
+  <thead><tr><th>Run</th><th>Date</th><th>Production</th><th>Client</th><th>Verdict</th><th>Similarity</th><th>Findings</th><th>Issues</th><th>Report</th></tr></thead>
+  <tbody id="runs"></tbody>
+ </table></div>
+ <p class="muted" id="runs-note"></p>
+</section>
+
+<section id="page-rules" hidden>
+ <h1>Screen rules</h1>
+ <div class="muted">Regions and dynamic-text patterns for one client screen, saved to <code>config/screen_rules/&lt;screen&gt;.yaml</code>. Drag on the screenshot to add a region; drag a region to move it, its corner to resize it.</div>
+ <div class="tools">
+  <select id="rscreen" aria-label="Screen"></select>
+  <label>Screen match level <select id="rlevel"><option value="">config default</option><option>STRICT</option><option>LAYOUT</option><option>IGNORE_COLORS</option></select></label>
+ </div>
+ <div class="rules-grid">
+  <div class="shot"><canvas id="rcanvas"></canvas></div>
+  <div>
+   <h2>Region</h2>
+   <div id="redit" class="muted">Draw or click a region.</div>
+   <h2>Regions</h2>
+   <ul id="rlist" class="plain"></ul>
+   <h2>Dynamic text patterns</h2>
+   <div class="muted">A static label whose OCR text fully matches one of these (case-insensitive) is not compared word for word.</div>
+   <div id="rpats"></div>
+   <button type="button" class="ghost" id="raddpat">Add pattern</button>
+   <div class="actions"><button id="rsave">Save rules</button><button class="ghost" id="rtry">Try on last run</button></div>
+   <div id="rmsg"></div>
+  </div>
+ </div>
+</section>
+
+<section id="page-help" hidden>
+ <h1>Help</h1>
+ <h2>Verdicts</h2>
+ <dl>
+  <dt>PASS</dt><dd>Every check is within tolerance. Minor-only failures still pass, with warnings.</dd>
+  <dt>REVIEW</dt><dd>Borderline, or the system is unsure (low detection confidence, ambiguous match). A person should look. Any REVIEW and no FAIL gives REVIEW.</dd>
+  <dt>FAIL</dt><dd>Clearly outside tolerance. Any Critical or Major failure fails the screen.</dd>
+ </dl>
+ <h2>What is checked</h2>
+ <p class="muted">Geometry and chrome only. Poster artwork, titles inside rails and the status bar are live content and never compared.</p>
+ <dl>
+  <dt>A. Screen-level</dt><dd>Orientation and blank or broken screens; a Critical failure here skips B to G.</dd>
+  <dt>B. Layout &amp; structure</dt><dd>Missing or extra elements, section and tab order, alignment, spacing, overlap, clipping, cards per rail.</dd>
+  <dt>C. Position &amp; size</dt><dd>Each matched element's shift, size change, aspect distortion and card type, as a percentage of the screen.</dd>
+  <dt>D. Color</dt><dd>Brand, background, text, selected-state and badge colours (ΔE2000 in Lab), scrims and contrast.</dd>
+  <dt>E. Text &amp; typography</dt><dd>Static UI labels only (tabs, buttons, section titles): wording, truncation, case, script, font size, overflow, alignment.</dd>
+  <dt>F. Images, icons &amp; logo</dt><dd>Logo and icons match (crop similarity), broken or stretched images; never poster artwork.</dd>
+  <dt>G. Interaction state</dt><dd>Same tab selected, focus ring on the same element, same enabled/disabled look.</dd>
+ </dl>
+ <h2>Results page</h2>
+ <p>Click an issue to highlight its boxes on both screenshots; hover a box for its class and text. Each issue can be <b>accepted</b> (written to the accepted-differences file, so the next run reports it as PASS), turned into an <b>ignore region</b> (a NONE region in the screen's rules file) or <b>marked as a bug</b> (<code>review.json</code> in the run). Every change says which file it wrote and can be undone. <b>Re-check</b> redoes matching and the report from the saved OCR in a few seconds and saves <code>report_N.json</code> / <code>.html</code> beside the original.</p>
+ <h2>Where runs are stored</h2>
+ <p>Each comparison is kept in <code>output/app/&lt;YYYYMMDD_HHMMSS&gt;/</code>: the two screenshots, <code>production_fused.json</code> and <code>client_fused.json</code>, and <code>report.json</code>, <code>.html</code>, <code>.png</code> and <code>.pdf</code>. The History page lists them.</p>
+ <h2>Starting the app</h2>
+ <p>Double-click <code>UI Compare.bat</code> in the project folder, or run <code>python -m src.app</code> (add <code>--port 8800</code> or <code>--no-browser</code> if needed). It listens on 127.0.0.1 only. Heavy jobs (comparisons, adding a baseline, batch items) run one at a time; the others wait in a queue and show "queued (#n)".</p>
+</section>
+</main>
+<script src="/app.js"></script>
+<script src="/results.js"></script>
+<script src="/rules.js"></script>
+<script src="/library.js"></script>
+</body></html>

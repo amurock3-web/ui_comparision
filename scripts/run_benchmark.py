@@ -1,7 +1,16 @@
 """Score the pipeline on the known-defect benchmark from scripts.make_benchmark.
 
     python -m scripts.run_benchmark                 # every screen in input/benchmark/
-    python -m scripts.run_benchmark ss031 ss012
+    python -m scripts.run_benchmark ss031 ss012     # those screens only (no real pairs)
+    python -m scripts.run_benchmark --real-only     # real pairs only: seconds, cached fused JSONs
+
+Real pairs (input/benchmark/real/<name>/): a genuine production/client
+screenshot pair with production.<ext>, client.<ext>, manifest.json and the
+cached production_fused.json / client_fused.json (built once, and saved, when
+missing). The manifest lists rules {"spec_id", optional "class", "verdict",
+"text_contains"}: must_not_flag (a hit is a false alarm), must_flag (no hit is
+a miss), may_flag (tolerated); findings matching none of them are "unlisted"
+(counted, not penalised). Plus expected_verdict.
 
 For each case: detector + OCR + fusion + layout graph (src/pipeline.py) on
 the edited "production" image, compared with the untouched client image.
@@ -36,11 +45,13 @@ from pathlib import Path
 from scripts._test_utils import next_test_number
 from src.comparison.differ import DifferenceEngine
 from src.comparison.matcher import ElementMatcher
-from src.pipeline import build_document
+from src.pipeline import build_document, compare_documents
 from src.reporting.html_report import CSS, VERDICT_COLORS, write_html_report
 from src.reporting.report import IMPLEMENTED, ReportGenerator
+from src.schema.ui_element import UIDocument
 
 BENCH_DIR = Path("input/benchmark")
+REAL_DIR = BENCH_DIR / "real"
 OUTPUT_ROOT = Path("output/benchmark")
 OUTCOME_COLORS = {"caught": "#1f9d55", "pass ok": "#1f9d55", "caught as other": "#d97706",
                   "missed": "#dc2626", "false alarm": "#dc2626"}
@@ -122,6 +133,99 @@ def run_screen(screen_dir: Path, cases_dir: Path) -> list:
     return rows
 
 
+def rule_matches(rule: dict, finding: dict) -> bool:
+    """Every field the rule gives must match; text_contains is a case-insensitive substring."""
+    return (all(rule[k] == finding.get(k) for k in ("spec_id", "class", "verdict") if k in rule)
+            and ("text_contains" not in rule
+                 or rule["text_contains"].lower() in (finding.get("text") or "").lower()))
+
+
+def score_real(manifest: dict, report: dict) -> dict:
+    findings = report["findings"]
+    hits = lambda key, f: any(rule_matches(r, f) for r in manifest.get(key, []))
+    return {
+        "verdict_ok": report["verdict"] == manifest["expected_verdict"],
+        "violations": [f for f in findings if hits("must_not_flag", f)],
+        "misses": [r for r in manifest.get("must_flag", []) if not any(rule_matches(r, f) for f in findings)],
+        "unlisted": [f for f in findings
+                     if not any(hits(k, f) for k in ("must_not_flag", "may_flag", "must_flag"))],
+    }
+
+
+def _real_side(case_dir: Path, side: str):
+    """(fused doc, screenshot) for one side; the cached fused JSON skips detector + OCR."""
+    image = next(p for p in sorted(case_dir.glob(f"{side}.*")) if p.suffix.lower() != ".json")
+    cache = case_dir / f"{side}_fused.json"
+    if cache.is_file():
+        return UIDocument.model_validate_json(cache.read_text(encoding="utf-8")), image
+    doc, _ = build_document(image, case_dir.name, side)
+    doc.save_json(cache)
+    return doc, image
+
+
+def run_real(cases_dir: Path) -> list:
+    rows = []
+    brief = lambda f: {k: f[k] for k in ("spec_id", "verdict", "class", "text")}
+    for case_dir in sorted(p for p in REAL_DIR.glob("*") if (p / "manifest.json").is_file()):
+        manifest = json.loads((case_dir / "manifest.json").read_text(encoding="utf-8"))
+        prod_doc, prod_image = _real_side(case_dir, "production")
+        client_doc, client_image = _real_side(case_dir, "client")
+        result = compare_documents(prod_doc, client_doc, prod_image, client_image, cases_dir,
+                                   f"real_{case_dir.name}")
+        report = result["report"]
+        s = score_real(manifest, report)
+        rows.append({"case": case_dir.name, "note": manifest.get("note", ""),
+                     "expected_verdict": manifest["expected_verdict"], "verdict": report["verdict"],
+                     "verdict_ok": s["verdict_ok"], "findings": len(report["findings"]),
+                     "violations": [brief(f) for f in s["violations"]], "misses": s["misses"],
+                     "unlisted": [brief(f) for f in s["unlisted"]],
+                     "report": str(Path(result["html_path"]).relative_to(cases_dir.parent))})
+        print(f"\n=== real / {case_dir.name}: verdict {report['verdict']} "
+              f"(expect {manifest['expected_verdict']}), {len(s['violations'])} false alarm(s), "
+              f"{len(s['misses'])} miss(es), {len(s['unlisted'])} unlisted")
+        for f in s["violations"]:
+            print(f"  false alarm: {f['spec_id']} {f['verdict']} {f['class']} {f['text'] or ''}")
+        for r in s["misses"]:
+            print(f"  missed: {r}")
+        for f in s["unlisted"]:
+            print(f"  unlisted: {f['spec_id']} {f['verdict']} {f['class']} {f['text'] or ''}")
+    return rows
+
+
+def summarise_real(rows) -> dict:
+    return {"cases": len(rows), "verdict_ok": sum(r["verdict_ok"] for r in rows),
+            "false_alarms": sum(len(r["violations"]) for r in rows),
+            "misses": sum(len(r["misses"]) for r in rows),
+            "unlisted": sum(len(r["unlisted"]) for r in rows)}
+
+
+def real_section(summary, rows) -> list:
+    esc = html.escape
+    fmt = lambda f: esc(f"{f['spec_id']} {f.get('verdict') or ''} {f.get('class') or ''} "
+                        f"{f.get('text') or f.get('text_contains') or ''}".strip())
+    out = ["<h2>Real pairs</h2><p class='muted'>Genuine production/client pairs "
+           "(input/benchmark/real/). False alarm = a finding the manifest says must not be flagged; "
+           "miss = a must_flag rule nothing matched; unlisted findings are not penalised.</p>",
+           "<div class='stats'>"
+           f"<div class='stat'><b>{summary['verdict_ok']}/{summary['cases']}</b>verdicts right</div>"
+           f"<div class='stat'><b>{summary['false_alarms']}</b>false alarms</div>"
+           f"<div class='stat'><b>{summary['misses']}</b>misses</div>"
+           f"<div class='stat'><b>{summary['unlisted']}</b>unlisted findings</div></div>",
+           "<table><tr><th>Pair</th><th>Verdict</th><th>False alarms</th><th>Misses</th>"
+           "<th>Unlisted</th><th>Report</th></tr>"]
+    for r in rows:
+        out.append(f"<tr><td>{esc(r['case'])}<br><span class='muted'>{esc(r['note'])}</span></td>"
+                   f"<td><span class='pill' style='background:{VERDICT_COLORS[r['verdict']]}'>"
+                   f"{esc(r['verdict'])}</span> expected {esc(r['expected_verdict'])}"
+                   f"{'' if r['verdict_ok'] else ' <b>(wrong)</b>'}</td>"
+                   f"<td>{'<br>'.join(map(fmt, r['violations'])) or '-'}</td>"
+                   f"<td>{'<br>'.join(map(fmt, r['misses'])) or '-'}</td>"
+                   f"<td>{'<br>'.join(map(fmt, r['unlisted'])) or '-'}</td>"
+                   f"<td><a href='{esc(r['report'])}'>open</a></td></tr>")
+    out.append("</table>")
+    return out
+
+
 def summarise(rows) -> dict:
     defects = [r for r in rows if r["expected"]]
     by_spec = defaultdict(Counter)
@@ -142,14 +246,20 @@ def summarise(rows) -> dict:
     }
 
 
-def write_scorecard(summary, rows, path: Path):
+def write_scorecard(summary, rows, path: Path, real_summary=None, real_rows=()):
     esc = html.escape
     pill = lambda text, color: f"<span class='pill' style='background:{color}'>{esc(text)}</span>"
     s = summary
-    out = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-           f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-           f"<title>Benchmark Scorecard</title><style>{CSS}</style></head><body>",
-           "<h1>Benchmark scorecard</h1>",
+    head = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>Benchmark Scorecard</title><style>{CSS}</style></head><body>",
+            "<h1>Benchmark scorecard</h1>"]
+    if not rows:  # --real-only
+        out = head + [f"<div class='muted'>{datetime.now():%Y-%m-%d %H:%M}</div>"]
+        out += real_section(real_summary, real_rows) + ["</body></html>"]
+        path.write_text("\n".join(out), encoding="utf-8")
+        return
+    out = head + [
            f"<div class='muted'>{datetime.now():%Y-%m-%d %H:%M} &middot; {s['cases']} cases on "
            f"{len({r['screen'] for r in rows})} screens. Each case is a copy of a screenshot with one "
            f"known defect (scripts/make_benchmark.py), compared against the untouched screenshot.</div>",
@@ -195,13 +305,19 @@ def write_scorecard(summary, rows, path: Path):
                    f"<td>{pill(r['verdict'], VERDICT_COLORS[r['verdict']])}</td>"
                    f"<td>{esc(', '.join(map(str, r['flagged_as'])) or '-')}</td><td>{fa}</td>"
                    f"<td><a href='{esc(r['report'])}'>open</a></td></tr>")
-    out.append("</table></body></html>")
+    out.append("</table>")
+    if real_rows:
+        out += real_section(real_summary, real_rows)
+    out.append("</body></html>")
     path.write_text("\n".join(out), encoding="utf-8")
 
 
 def main():
-    screens = sys.argv[1:] or sorted(p.name for p in BENCH_DIR.iterdir() if (p / "manifest.json").is_file())
-    if not screens:
+    args = [a for a in sys.argv[1:] if a != "--real-only"]
+    real_only = "--real-only" in sys.argv[1:]
+    screens = [] if real_only else args or sorted(
+        p.name for p in BENCH_DIR.iterdir() if (p / "manifest.json").is_file())
+    if not screens and not real_only:
         raise SystemExit(f"no benchmark in {BENCH_DIR} - run: python -m scripts.make_benchmark")
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     out_dir = OUTPUT_ROOT / f"test{next_test_number(OUTPUT_ROOT)}_benchmark"
@@ -211,14 +327,22 @@ def main():
     rows = []
     for screen in screens:
         rows += run_screen(BENCH_DIR / screen, cases_dir)
+    real_rows = run_real(cases_dir) if real_only or not args else []
 
     summary = summarise(rows)
-    (out_dir / "results.json").write_text(json.dumps({"summary": summary, "cases": rows}, indent=2,
-                                                     ensure_ascii=False), encoding="utf-8")
-    write_scorecard(summary, rows, out_dir / "scorecard.html")
-    print(f"\nCaught {summary['caught']}/{summary['defect_cases']}, "
-          f"as other {summary['caught_as_other']}, missed {summary['missed']}, "
-          f"false alarms {summary['false_alarms']}")
+    real_summary = summarise_real(real_rows)
+    (out_dir / "results.json").write_text(json.dumps({"summary": summary, "cases": rows,
+                                                      "real_summary": real_summary, "real": real_rows},
+                                                     indent=2, ensure_ascii=False), encoding="utf-8")
+    write_scorecard(summary, rows, out_dir / "scorecard.html", real_summary, real_rows)
+    if rows:
+        print(f"\nCaught {summary['caught']}/{summary['defect_cases']}, "
+              f"as other {summary['caught_as_other']}, missed {summary['missed']}, "
+              f"false alarms {summary['false_alarms']}")
+    if real_rows:
+        print(f"Real pairs: verdicts right {real_summary['verdict_ok']}/{real_summary['cases']}, "
+              f"false alarms {real_summary['false_alarms']}, misses {real_summary['misses']}, "
+              f"unlisted {real_summary['unlisted']}")
     print(f"Scorecard: {out_dir / 'scorecard.html'}")
 
 

@@ -170,3 +170,53 @@ def test_disabled_reproduces_the_old_behaviour(tmp_path):
     # Without the second pass the text-less cards are unmatched again.
     assert set(result.unmatched_client) == {"c1", "c2", "c3"}
     assert all(m.match_pass == 1 for m in result.matches)
+
+
+# Phase 14.0: the same move seen at two levels of the layout tree is reported
+# once. On the SunNXT language pair "screen" (-136 px) and the sheet tabs
+# (-139 px) were two GROUP_SHIFTs for one sheet move.
+
+def _chains(shifts, containers, merge=True):
+    engine = DifferenceEngine()
+    engine.merge_nested_shifts = merge
+    info = {g: {"shift": s, "anchors": 3, "members": []} for g, s in shifts.items()}
+    return engine._merged_shift_chains(info, _graph(containers))
+
+
+def test_nested_shift_merges_into_its_parent_panel():
+    chains = _chains({"screen": (0.003, -0.058), "grp_sheet": (-0.006, -0.059)},
+                     {"screen": ["grp_sheet"]})
+    assert chains == {"grp_sheet": ["screen", "grp_sheet"]}
+
+
+def test_nested_groups_with_different_shifts_stay_separate():
+    chains = _chains({"screen": (0.0, 0.009), "grp_header": (0.015, 0.009),
+                      "grp_sheet": (0.003, -0.058)},
+                     {"screen": ["grp_header", "grp_sheet"]})
+    assert sorted(chains) == ["grp_header", "grp_sheet", "screen"]
+
+
+def test_chain_of_three_is_one_finding_named_by_the_outermost_panel():
+    chains = _chains({"screen": (0.0, -0.058), "grp_sheet": (0.0, -0.058),
+                      "grp_row": (0.0, -0.059)},
+                     {"screen": ["grp_sheet"], "grp_sheet": ["grp_row"]})
+    assert list(chains) == ["grp_sheet"]
+    assert sorted(chains["grp_sheet"]) == ["grp_row", "grp_sheet", "screen"]
+
+
+def test_merge_nested_off_keeps_one_finding_per_container():
+    chains = _chains({"screen": (0.0, -0.058), "grp_sheet": (0.0, -0.058)},
+                     {"screen": ["grp_sheet"]}, merge=False)
+    assert sorted(chains) == ["grp_sheet", "screen"]
+
+
+def test_panel_under_the_screen_root_is_reported_once_end_to_end():
+    prod, client, _ = _panel(SHIFT)
+    ids = [e.id for e in client.elements]
+    graph = _graph({"screen": ["grp_panel"], "grp_panel": ids})
+
+    _, differences = _compare(prod, client, graph)
+
+    shifts = _types(differences, "GROUP_SHIFT")
+    assert [d.client_id for d in shifts] == ["grp_panel"]
+    assert shifts[0].details["merged_groups"] == ["screen"]

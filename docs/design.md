@@ -294,7 +294,12 @@ sequential-number condition covers these. A rank present in Production
 but missing in Client is reported (attribute difference), so the
 information is not lost by dropping the class.
 
-## 21. Color detection design (parked)
+## 21. Color detection design (built, Phase 13-15)
+
+Built as `src/comparison/color_checks.py` (D1, D2, D5, CIEDE2000) and
+`src/comparison/contrast_checks.py` (D3 text colour, D7 contrast via a k-means
+text/background split). Background and fill follow points 1-2 below; the
+translucent-chrome question (point 3) stayed open: see memory.md Phase 13/14.
 
 1. **Screen background:** mask out all detected boxes, take the
    mode/median color of the remaining pixels.
@@ -317,12 +322,12 @@ Traps:
 
 ## 22. Other attribute extractors (backlog, by value vs effort)
 
-1. Text color + font size — font size ≈ OCR box height; cheap
-2. Selected/active tab — color-contrast rule vs sibling tabs; high value
-3. Spacing and alignment — from graph gaps / `ALIGNED_WITH` edges
-4. Truncation — text ending in "…" on one side only
-5. Icon identity — perceptual hash (pHash) of the icon crop
-6. Static image identity (logos only) — pHash; skip posters
+1. Text color + font size — text colour built (D3); font size not yet
+2. Selected/active tab — color-contrast rule vs sibling tabs; high value (D4, not built)
+3. Spacing and alignment — alignment built (B5); spacing (B6) not yet
+4. Truncation — text ending in "…" on one side only (not built)
+5. Icon identity — built as SSIM + dHash (F2, `image_checks.py`)
+6. Static image identity (logos only) — built as SSIM (F1); posters never compared
 
 Build order is decided by frequency in real QA bug tickets
 (rules.md §20), not by this list.

@@ -1,0 +1,16 @@
+# Columns written by `python -m scripts.export_tickets <report.json>`, in this order.
+# Reorder / remove entries to match the team's ticket sheet. Allowed names:
+# run_id, date, screen, spec_id, severity, verdict, element_class, element_text,
+# description, count, report_path (unknown names come out as empty columns).
+columns:
+  - run_id
+  - date
+  - screen
+  - spec_id
+  - severity
+  - verdict
+  - element_class
+  - element_text
+  - description
+  - count
+  - report_path

@@ -220,6 +220,10 @@ def test_structural_difference_flagged_when_sibling_context_changes():
     # about half the matched pairs of a real screen), so opt in here.
     engine = DifferenceEngine()
     engine.report_structural = True
+    # A badge on a card is dynamic content since Phase 14b (F1); this test is
+    # about the structural-context mechanism, so the on-card rule is off here.
+    engine.on_card_overlap = None
+    engine._matcher.on_card_overlap = None
     differences = engine.compare(prod, client, prod_graph, client_graph)
 
     badge_diffs = [d for d in differences if d.production_id == "p_badge"]

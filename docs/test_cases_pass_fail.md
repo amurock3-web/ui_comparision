@@ -37,6 +37,8 @@ Status: **proposed defaults**. No spec was provided by the manager, so every thr
 | A4 | Safe area / notch | Any element box inside top/bottom system-bar zone | Nothing overlaps system bars | Button/text under notch or nav bar | Major |
 | A5 | Screen scaling | Ratio of key element sizes vs screen width | Within ±5% | UI zoomed/shrunk >15% overall | Major |
 
+A Critical FAIL here (A1, A2) means the screens are not comparable element by element: the report says so once and skips sections B–G.
+
 ## B. Layout & structure
 
 | ID | Check | How to measure | PASS | FAIL | Severity |
@@ -50,6 +52,8 @@ Status: **proposed defaults**. No spec was provided by the manager, so every thr
 | B7 | Overlap | IoU between elements that don't overlap in template | No new overlap | Text on text, badge covering title | Major |
 | B8 | Clipping / cut off | Element box touches screen edge when template doesn't | Fully visible | Button/text cut by screen edge | Major |
 | B9 | Cards visible per rail | Count of `content_card` per row | Same, or differs only because the screen is wider/narrower | Rail shows 1 card where template shows 3+ at same width | Minor (REVIEW if device differs) |
+
+B4 also covers two tabs that swapped labels in place (same boxes, texts exchanged). B5 is not reported for an element already reported missing, extra, moved or resized — the misalignment is a side effect of that finding.
 
 ## C. Position & size (per matched element)
 
@@ -147,9 +151,28 @@ Everything else comes later.
 
 | Needs | Cases | Status |
 |---|---|---|
-| Just image math, no detection | A1, A2, A3 | Easy, can be done today |
-| Detection + matching (YOLO + OCR, VLM fallback) | B*, C*, E*, G1 | Built. YOLO `ui16_v1` gives class + bbox, OCR gives text, uncertain elements → REVIEW |
-| Matching + simple pixel check (color, SSIM) | D*, F* | **Not in phases.md yet.** Add to Phase 6 |
+| Just image math, no detection | A1, A2, A3, A5 | Built (`src/comparison/screen_checks.py`) |
+| Detection + matching (YOLO + OCR, VLM fallback) | B1-B5, B8, B9, C1, C2, C4, E1, E3 | Built. YOLO `ui16_v1` gives class + bbox, OCR gives text, uncertain elements → REVIEW |
+| Language | E4 | Built (`script_checks.py`): Unicode script of matched labels |
+| Matching + pixel check (colour, contrast) | D1, D2, D3, D5, D7 | Built (`color_checks.py`, `contrast_checks.py`) |
+| Picture identity / presence | F1, F2, F3 | Built (`image_checks.py`). F1/F2 idle until the detector finds `logo` / `icon` |
+| Not built | A4, B6, B7, C3, D4, D6, E2, E5-E7, F4, G* | — |
+
+The report's Coverage table lists every row as checked, "skipped (LEVEL)" when the screen's match
+level turned its family off, or not built. Skipped is never shown as PASS.
+
+## Match levels, regions and accepted differences
+
+Not spec rows, but they decide which rows report:
+- **Match level** per screen (`config/screen_rules/<client screen id>.yaml`) or per region: STRICT
+  (every check), LAYOUT (no D, E, F), IGNORE_COLORS (no D), NONE (ignore region). The status bar is
+  always a NONE region (§H).
+- **FLOATING region**: an element inside it may move up to `max_offset_norm` (of the diagonal)
+  before C1 reports.
+- **Dynamic text patterns** (E1): a label whose value may change but whose format must not (price,
+  duration, episode, date) is compared by format.
+- **Accepted differences**: a finding a human accepted once comes back as PASS (accepted), until the
+  element, its text or its colour changes.
 
 ## How to get fail cases without client data (mutation testing)
 

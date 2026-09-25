@@ -204,7 +204,7 @@ def _reading_order(ocr_elements):
 
 class FusionEngine:
     def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
-        cfg = yaml.safe_load(Path(config_path).read_text()).get("fusion", {})
+        cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")).get("fusion", {})
         self.text_similarity_threshold = cfg.get("text_similarity_threshold", 0.6)
         self.badge_keywords = set(cfg.get("badge_keywords", ["free", "new"]))
         self.badge_containment_padding = cfg.get("badge_containment_padding", 40)

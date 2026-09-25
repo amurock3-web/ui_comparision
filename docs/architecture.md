@@ -190,7 +190,41 @@ Combines: - JSON comparison - OCR/text comparison - geometry - graph comparison
 
 The final decision should be as deterministic/explainable as possible.
 
+Order in `src/comparison/differ.py`: screen-level checks (A1-A5) and background colour run first.
+A Critical screen FAIL (A1 rotated, A2 blank) ends the comparison with one
+`ELEMENT_COMPARISON_SKIPPED` record instead of a wall of element findings
+(`comparison.stop_on_critical_screen_failure`). Then unmatched (B1/B2), group shifts, layout checks
+(B3/B4/B5/B8), per-pair checks. Last, B5 findings on elements already named by a
+missing/extra/moved/resized finding are dropped as collateral (`comparison.layout.drop_alignment_collateral`);
+B5 rows on one alignment chain are merged into one finding (`merge_alignment_chains`). B4 also fires
+on two tabs that swapped labels even when the matcher paired them by position.
+
+Per matched pair (Phases 14-15): C1 position (bands widened inside a FLOATING region), C2 size
+(re-measured from pixels by `pixel_geometry.tight_box`; a box-wobble finding is dropped when both
+tight boxes agree), E1/E3 label text (E4 instead when the dominant script differs; formatted values
+such as prices compared by pattern, not value), D1/D5 fill colour, D7 contrast and D3 text colour
+(k-means text/background split, WCAG ratio), F1/F2 logo/icon SSIM. Per production card: F3 broken
+image (an almost-flat card, unless the design card is flat too). Nested GROUP_SHIFTs carrying the
+same move are reported once.
+
+Then two filters that every entry point shares (rematch, run_comparison, the app):
+1. Match levels (`src/comparison/regions.py`): the smallest covering region, else
+   `config/screen_rules/<client screen id>.yaml`, else `comparison.match_levels.default`, decides
+   which spec families may report; a skipped finding becomes PASS with `details.ignored`, and
+   coverage shows the family as "skipped (LEVEL)". The status bar is a default NONE region.
+2. Accepted differences (`src/comparison/accepted.py`): a finding matching an entry in
+   `baselines/accepted_differences.yaml` becomes PASS with `details.accepted`; unused entries are
+   reported as stale.
+
+Every check has an `enabled` switch in config; off, and STRICT with no rules or acceptance file,
+reproduce the earlier output.
+
 13. Reporting
+
+`src/reporting/report.py` builds verdict, similarity, findings (with spec id, both boxes
+normalized, and the client centre), coverage per spec row, and confidence. `grouping.py` groups
+repeated findings into issues (presentation only), `export.py` writes ticket CSV rows per issue,
+`history.py` diffs a run against the previous run of the same screen (new / fixed / still open).
 
 Output:
 

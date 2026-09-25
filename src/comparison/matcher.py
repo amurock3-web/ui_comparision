@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+from src.comparison.text_cleanup import clean_label
 from shapely.geometry import box
 
 from src.schema.ui_element import UIDocument
@@ -46,14 +48,46 @@ from src.schema.ui_element import UIDocument
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
 
-def _is_dynamic(el, by_id) -> bool:
-    """§H ignore list: anything inside a content_card is live data, and
-    anything fusion tagged ignored (the status bar). Lives here because both
-    the matcher (anchor selection) and the differ need the same rule."""
+POSTER_CARDS = ("content_card", "cast_card", "celebrity_card")
+
+
+def _inside_share(inner, outer) -> float:
+    """Share of `inner`'s area inside `outer`; both [x, y, w, h] normalized."""
+    ix = max(0.0, min(inner[0] + inner[2], outer[0] + outer[2]) - max(inner[0], outer[0]))
+    iy = max(0.0, min(inner[1] + inner[3], outer[1] + outer[3]) - max(inner[1], outer[1]))
+    area = inner[2] * inner[3]
+    return ix * iy / area if area > 0 else 0.0
+
+
+def _is_dynamic(el, by_id, on_card_overlap=0.75) -> bool:
+    """§H ignore list: anything on a poster card is live data, and anything
+    fusion tagged ignored (the status bar). Lives here because both the
+    matcher (anchor selection) and the differ need the same rule.
+
+    "On a card" is the parent link when fusion made one, else geometry: at
+    least `on_card_overlap` of the element's box inside a card. Fusion leaves
+    detector badges without a parent - on the Trending Search run all 12
+    "Free" / "Most Viewed" / crown badges had parent_id None and were each
+    reported as a Major B1/B2 although only the posters had changed.
+    on_card_overlap=None switches the geometric test off.
+    """
     if el.metadata.get("ignored"):
         return True
     parent = by_id.get(el.parent_id) if el.parent_id else None
-    return parent is not None and parent.class_ == "content_card"
+    if parent is not None and parent.class_ in POSTER_CARDS:
+        return True
+    if on_card_overlap is None or el.class_ in POSTER_CARDS or not el.normalized_bbox:
+        return False
+    return any(other.class_ in POSTER_CARDS and other.normalized_bbox
+               and _inside_share(el.normalized_bbox, other.normalized_bbox) >= on_card_overlap
+               for other in by_id.values() if other is not el)
+
+
+def _on_card_overlap(full_config):
+    """The geometric on-card threshold, or None when the rule is switched off."""
+    if not full_config.get("comparison", {}).get("badges_on_cards_are_dynamic", True):
+        return None
+    return full_config.get("graph", {}).get("loose_containment_overlap", 0.75)
 
 
 def _normalize_text(text):
@@ -199,6 +233,9 @@ class MatchResult:
     unmatched_client: list
     # container id -> {"shift": (dx, dy), "anchors": n, "members": [ids]}
     group_shifts: dict = field(default_factory=dict)
+    # Leftovers the rescue pass could have paired more than one way (rules.md
+    # §I: never guess) - reported REVIEW instead of a confident B1/B2.
+    ambiguous: set = field(default_factory=set)
     by_production: dict = field(default_factory=dict)
     by_client: dict = field(default_factory=dict)
 
@@ -209,7 +246,14 @@ class MatchResult:
 
 class ElementMatcher:
     def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
-        cfg = yaml.safe_load(Path(config_path).read_text()).get("matching", {})
+        full = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+        cfg = full.get("matching", {})
+        self.on_card_overlap = _on_card_overlap(full)
+        glyph = full.get("comparison", {}).get("glyph_cleanup", {})
+        self.glyph_classes = set(glyph.get("classes", ["tab_item", "button", "search_bar",
+                                                        "section_title"])
+                                 if glyph.get("enabled", True) else [])
+        self.glyph_max_len = glyph.get("max_len", 2)
         self.min_score = cfg.get("minimum_match_score", 0.70)
         weights = cfg.get("weights", {})
         self.w_class = weights.get("class", 0.25)
@@ -227,6 +271,11 @@ class ElementMatcher:
         # true IoU. Below 1.0 because containment is weaker evidence: a small
         # box sits fully inside any large one it happens to overlap.
         self.containment_credit = cfg.get("containment_credit", 0.5)
+        rescue = cfg.get("rescue", {})
+        self.rescue_enabled = rescue.get("enabled", True)
+        self.rescue_max_distance = rescue.get("max_center_distance", 0.03)
+        self.rescue_min_text = rescue.get("min_text_score", 0.5)
+        self.rescue_min_margin = rescue.get("min_margin", 0.01)
 
     def match(
         self,
@@ -251,7 +300,7 @@ class ElementMatcher:
             pb = p.normalized_bbox if shift == (0.0, 0.0) else _unshift(p.normalized_bbox, shift)
             breakdown = {
                 "class": _class_score(p.class_, c.class_),
-                "text": _text_score(p.text, c.text),
+                "text": _text_score(self._clean(p), self._clean(c)),
                 "spatial": _spatial_score(
                     _normalized_center(pb), _normalized_center(c.normalized_bbox)
                 ),
@@ -323,16 +372,94 @@ class ElementMatcher:
                             pass2.append((score, p.id, c.id, breakdown))
                 resolve(pass2, 2, shift_of)
 
+        ambiguous = set()
+        if self.rescue_enabled:
+            shift_of = ((lambda cid: self._shift_for(cid, client_graph, group_shifts))
+                        if group_shifts else (lambda cid: (None, (0.0, 0.0))))
+            rescued, ambiguous = self._rescue(production_doc, client_doc, matched_p, matched_c,
+                                              prod_by_id, client_by_id, shift_of)
+            for p, c in rescued:
+                group, shift = shift_of(c.id)
+                score, breakdown = score_pair(p, c, shift)
+                matched_p.add(p.id)
+                matched_c.add(c.id)
+                matches.append(ElementMatch(p.id, c.id, round(score, 4), breakdown,
+                                            match_pass=3, group=group, shift=shift))
+
         unmatched_production = [el.id for el in production_doc.elements if el.id not in matched_p]
         unmatched_client = [el.id for el in client_doc.elements if el.id not in matched_c]
 
-        return MatchResult(matches, unmatched_production, unmatched_client, group_shifts)
+        return MatchResult(matches, unmatched_production, unmatched_client, group_shifts,
+                           ambiguous=ambiguous)
+
+    def _clean(self, el):
+        """Label without OCR'd icon glyphs, for the classes glyph_cleanup covers."""
+        if el.text and el.class_ in self.glyph_classes:
+            return clean_label(el.text, self.glyph_max_len)[0]
+        return el.text
+
+    def _rescue(self, production_doc, client_doc, matched_p, matched_c,
+                prod_by_id, client_by_id, shift_of):
+        """Pass 3: one element reported twice, as MISSING and as EXTRA.
+
+        Found on the Trending Search pair: the search bar is in both screenshots
+        30 px apart, but OCR attached no text to the production one, so the text
+        score was 0 and the pair stayed under minimum_match_score - one bar, two
+        Major FAILs. Leftovers of the same (non-null) class whose centres lie
+        within max_center_distance of the diagonal (after the group shift) and
+        whose texts agree, or where exactly one side has none, are paired - but only
+        when they are each other's nearest candidate by a clear margin. Anything
+        closer to a tie is marked ambiguous and becomes REVIEW, never a guess.
+        Weights and minimum_match_score are untouched; rescued pairs are then
+        judged normally (C1/C2/E1...), so a real move is still reported once.
+        """
+        W, H = client_doc.image_width or 1, client_doc.image_height or 1
+        diag = (W ** 2 + H ** 2) ** 0.5
+
+        def distance(p, c):
+            _, (sx, sy) = shift_of(c.id)
+            pc, cc = _normalized_center(p.normalized_bbox), _normalized_center(c.normalized_bbox)
+            return (((pc[0] - sx - cc[0]) * W) ** 2 + ((pc[1] - sy - cc[1]) * H) ** 2) ** 0.5 / diag
+
+        def usable(el, by_id, matched):
+            return (el.id not in matched and el.class_ and el.normalized_bbox
+                    and not _is_dynamic(el, by_id, self.on_card_overlap))
+
+        prods = [p for p in production_doc.elements if usable(p, prod_by_id, matched_p)]
+        clients = [c for c in client_doc.elements if usable(c, client_by_id, matched_c)]
+        cands = {}
+        for c in clients:
+            for p in prods:
+                # Text-less look-alikes (a grid of unlabelled cards) cannot be
+                # told apart by position alone: the neighbour is as close as
+                # the element itself. At least one side must carry a label.
+                if p.class_ != c.class_ or not (p.text or c.text):
+                    continue
+                if p.text and c.text and _text_score(p.text, c.text) < self.rescue_min_text:
+                    continue
+                d = distance(p, c)
+                if d <= self.rescue_max_distance:
+                    cands[(p.id, c.id)] = d
+
+        def ranked(key_index, element_id):
+            return sorted(d for k, d in cands.items() if k[key_index] == element_id)
+
+        rescued, ambiguous = [], set()
+        for (pid, cid), d in sorted(cands.items(), key=lambda kv: kv[1]):
+            by_c, by_p = ranked(1, cid), ranked(0, pid)
+            clear = all(len(r) == 1 or r[1] - r[0] >= self.rescue_min_margin for r in (by_c, by_p))
+            if by_c[0] == d and by_p[0] == d and clear:
+                rescued.append((prod_by_id[pid], client_by_id[cid]))
+            else:
+                ambiguous |= {pid, cid}
+        taken = {p.id for p, _ in rescued} | {c.id for _, c in rescued}
+        return rescued, ambiguous - taken
 
     def _is_anchor(self, p, c, breakdown, client_by_id) -> bool:
         """A pair trustworthy enough to vote on where its container moved."""
         if p.class_ is None or p.class_ != c.class_:
             return False
-        if _is_dynamic(c, client_by_id):
+        if _is_dynamic(c, client_by_id, self.on_card_overlap):
             return False
         if p.text and c.text and breakdown["text"] >= self.anchor_min_text_score:
             return True

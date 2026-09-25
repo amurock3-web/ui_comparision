@@ -23,6 +23,7 @@ Each function returns a list of plain dicts, empty when the two sides agree.
 
 import difflib
 
+from src.comparison.matcher import _normalize_text
 from src.graph.layout import ALIGN_AXES
 
 ORDER_RELATIONSHIPS = ("ABOVE", "LEFT_OF")
@@ -179,6 +180,39 @@ def _bars(graph, item_classes, bar_classes, min_items):
             yield node, items
 
 
+def _swapped_labels(production_graph, client_graph, match_result, items):
+    """Items in one bar that traded labels with each other.
+
+    A swapped tab bar is genuinely ambiguous and the matcher can read it either
+    way. Pair the tabs by text and their positions cross, so the order changed
+    (B4). Pair them by position - same box, different label - and it reads as
+    two independent label changes (E1). Both descriptions are true, and on the
+    benchmark the matcher chose by position on two of three screens, so B4 went
+    silent on a deliberate tab swap.
+
+    This finds the case directly: two matched items in the same bar where each
+    one's production text is the other's client text. That is a swap however
+    the matcher paired them.
+    """
+    labelled = []
+    for c in items:
+        m = match_result.by_client.get(c)
+        if m is None:
+            continue
+        p_text = _normalize_text(production_graph.nodes[m.production_id].get("text")
+                                 if m.production_id in production_graph else None)
+        labelled.append((c, _normalize_text(client_graph.nodes[c].get("text")), p_text))
+
+    swaps = []
+    for i, (c_a, client_a, prod_a) in enumerate(labelled):
+        for c_b, client_b, prod_b in labelled[i + 1:]:
+            if not (client_a and client_b) or client_a == client_b:
+                continue
+            if prod_a == client_b and prod_b == client_a:
+                swaps.append((c_a, c_b))
+    return swaps
+
+
 def tab_order(production_graph, client_graph, match_result,
               item_classes=("tab_item",),
               bar_classes=("navigation_bar", "tab_bar"),
@@ -196,16 +230,37 @@ def tab_order(production_graph, client_graph, match_result,
     found = []
     for bar, items in _bars(client_graph, item_classes, bar_classes, min_items):
         client_order, production_order, moved = _compare_order(items, match_result, prod_ranks)
-        if not moved:
+        swaps = _swapped_labels(production_graph, client_graph, match_result, items)
+        if not moved and not swaps:
             continue
+        if not moved and swaps:
+            # The matcher paired these by position, so the order looks intact
+            # and only the labels moved. Name the swapped pair directly.
+            moved_details = []
+            for c_a, c_b in swaps:
+                for c in (c_a, c_b):
+                    m = match_result.by_client.get(c)
+                    other = c_b if c is c_a else c_a
+                    moved_details.append({
+                        "client_id": c,
+                        "production_id": m.production_id if m else None,
+                        "label": _label(client_graph, c),
+                        "class": client_graph.nodes[c].get("class_"),
+                        "section_id": None,
+                        "client_index": items.index(c),
+                        "production_index": items.index(other),
+                    })
+        else:
+            moved_details = _moved_details(client_graph, match_result, client_order,
+                                           production_order, moved)
         found.append({
             "check": "B4",
             "bar_id": bar,
             "bar_class": client_graph.nodes[bar].get("class_"),
             "client_order": [_label(client_graph, c) for c in client_order],
             "production_order": [_label(client_graph, c) for c in production_order],
-            "moved": _moved_details(client_graph, match_result, client_order,
-                                    production_order, moved),
+            "moved": moved_details,
+            "swapped_labels": [[_label(client_graph, a), _label(client_graph, b)] for a, b in swaps],
             "compared": len(client_order),
             "skipped_unmatched": [c for c in items if c not in client_order],
         })

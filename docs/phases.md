@@ -135,3 +135,18 @@ mockups.
    (color, text style, selected tab, ...)
 4. Class refiner / ontology v3 / multi-app data only if results show
    they are the bottleneck
+
+## Phases 12-16 (2026-09-22 to 2026-09-25, built)
+
+Details and measurements in `memory.md`.
+
+- **12**: rematch script, element-count similarity, per-group shift matching.
+- **13 / 13.1**: noise reduction; screen (A1-A5), colour (D1, D2, D5) and layout (B3, B4, B5, B8)
+  checks; stop on a Critical screen failure; B5 collateral dropped; B4 tab swaps.
+- **14**: nested group shifts merged; C2 re-measured from pixels; findings grouped into issues;
+  accepted differences.
+- **15**: match levels + regions, dynamic text + floating regions, contrast (D7) and text colour
+  (D3), language (E4), logo / icon / broken image (F1-F3), baselines + batch + run history, ticket
+  CSV export.
+- **16**: one-click launcher and health checks, the app as a package with Compare / History /
+  Results / Rules / Baselines / Batch / Help pages and a job queue.

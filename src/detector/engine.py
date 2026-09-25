@@ -127,7 +127,7 @@ class YOLODetector(_Detector):
 
 def load_detector(config_path=DEFAULT_CONFIG_PATH):
     """The detector named by config/detector.yaml's `engine`."""
-    cfg = yaml.safe_load(Path(config_path).read_text())
+    cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     bundle = Bundle(cfg["bundle"])
     tiers = {"confidence_high": cfg["confidence_high"],
              "confidence_medium": cfg["confidence_medium"]}

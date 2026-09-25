@@ -19,7 +19,12 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - Compare a pair (writes the HTML report): `python -m scripts.run_comparison <production> <client>`
 - Redo matching/differ/report from saved fused JSONs (seconds, no detector/OCR): `python -m scripts.rematch <production_fused.json> <client_fused.json>` (same JSON twice = self-compare)
 - Known-defect benchmark: `python -m scripts.make_benchmark` then `python -m scripts.run_benchmark`
-- Drag-and-drop UI: `python -m src.app` (http://127.0.0.1:8765; runs kept in output/app/)
+- Drag-and-drop UI: `UI Compare.bat` or `python -m src.app` (http://127.0.0.1:8765, next free port if taken; runs kept in output/app/)
+- Rematch overrides: `--match-level STRICT|LAYOUT|IGNORE_COLORS`, `--rules <yaml>`
+- Baselines: `python -m scripts.add_baseline <client_image> --screen <id>` (~1 min), then
+  `python -m scripts.run_comparison <production> --baseline <id>`; many at once: `python -m scripts.run_batch <folder>`
+- Accept a finding: `python -m scripts.accept_finding <report.json> --finding N --note "..."`
+- Ticket CSV: `python -m scripts.export_tickets <report.json>`
 - Full pipeline CLI: `python -m src.main --production-image ... --production-screen-id ... --client-image ... --client-screen-id ...`
 - Unit tests: `python -m pytest tests -q`
 - Script output is numbered testN_* under output/<stage>/; never overwrite earlier runs.
@@ -35,7 +40,12 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - src/pipeline.py: screenshot -> fused doc + layout graph (used by run_comparison, run_benchmark and the app)
 - src/graph/layout.py: the layout-tree graph (sections, rows, overlays, clipped, hidden-card placeholders)
 - src/graph/build.py: the older pairwise graph, still used by src/main.py
-- src/reporting/: report.py (verdict, spec ids, coverage), html_report.py, visualize.py
+- src/comparison/differ.py: every check, wired in order; the check maths lives in pure modules beside it
+  (screen_checks, layout_checks, color_checks, contrast_checks, pixel_geometry, image_checks, script_checks)
+- src/comparison/regions.py: match levels + regions (config/screen_rules/); accepted.py: accepted differences
+- src/reporting/: report.py (verdict, spec ids, coverage), grouping.py (issues), export.py (tickets),
+  history.py (new/fixed/still open), html_report.py, visualize.py
+- src/baselines.py: stored client designs; src/app/: the web app package (server, jobs, actions, library, static/)
 - docs/memory.md: project history and benchmark results
 
 ## How to work with me

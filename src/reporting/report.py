@@ -27,7 +27,12 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
+from src.reporting.grouping import group_findings
+
 SPEC_PATH = Path(__file__).resolve().parents[2] / "docs" / "test_cases_pass_fail.md"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
 SPEC_BY_TYPE = {
     "ORIENTATION_DIFFERENCE": "A1",
@@ -50,15 +55,25 @@ SPEC_BY_TYPE = {
     "GROUP_SHIFT": "C1",  # a whole panel moved; reported once, not per member
     "SIZE_DIFFERENCE": "C2",
     "STRUCTURAL_DIFFERENCE": "graph",  # no spec row; the matcher's context hint
+    "ELEMENT_COMPARISON_SKIPPED": "info",  # no spec row; why the rest is absent
+    "MATCH_LEVEL": "info",  # no spec row; which level applied and what it skipped
+    "ACCEPTANCES": "info",  # no spec row; the acceptance file and its stale entries
+    "LANGUAGE_DIFFERENCE": "E4",
+    "CONTRAST_DIFFERENCE": "D7",
+    "TEXT_COLOR_DIFFERENCE": "D3",
+    "LOGO_DIFFERENCE": "F1",
+    "ICON_DIFFERENCE": "F2",
+    "BROKEN_IMAGE": "F3",
 }
 # Test cases src/comparison/differ.py implements. Keep in step with its docstring.
 IMPLEMENTED = {"A1", "A2", "A3", "A5", "B1", "B2", "B3", "B4", "B5", "B8", "B9", "C1", "C2", "C4",
-               "D1", "D2", "D5", "E1", "E3"}
+               "D1", "D2", "D3", "D5", "D7", "E1", "E3", "E4", "F1", "F2", "F3"}
 RULES = [("H", "Ignore list (poster art, status bar, dynamic text)"),
          ("I", "Uncertainty -> REVIEW (never silent PASS)")]
 # Keys in report["summary"] that are not per-difference-type counts.
 SUMMARY_FIELDS = ("matched_pairs", "clean_pairs", "missing", "extra", "ignored", "comparable",
-                  "similarity_percent", "clean_percent", "difference_records", "warning")
+                  "similarity_percent", "clean_percent", "difference_records", "warning", "issues",
+                  "match_level", "accepted")
 
 
 def spec_id(difference, element) -> str:
@@ -79,16 +94,21 @@ def load_spec(path: Path = SPEC_PATH) -> list:
     return rows
 
 
-def coverage(findings) -> list:
-    """Every spec test case: checked (with its worst verdict here) or not built."""
+def coverage(findings, skipped=(), level=None) -> list:
+    """Every spec test case: checked (with its worst verdict here), skipped by the
+    screen's match level (skipped is not passed), or not built."""
     worst = {}
     rank = {"PASS": 0, "REVIEW": 1, "FAIL": 2}
     for f in findings:
         if rank[f["verdict"]] > rank.get(worst.get(f["spec_id"]), -1):
             worst[f["spec_id"]] = f["verdict"]
-    rows = [{"id": i, "check": check,
-             "status": "checked" if i in IMPLEMENTED else "not built",
-             "result": worst.get(i, "PASS") if i in IMPLEMENTED else None}
+    def status(i):
+        if i not in IMPLEMENTED:
+            return "not built"
+        return f"skipped ({level})" if i[:1] in skipped else "checked"
+
+    rows = [{"id": i, "check": check, "status": status(i),
+             "result": worst.get(i, "PASS") if status(i) == "checked" else None}
             for i, check in load_spec()]
     rows += [{"id": i, "check": check, "status": "applied", "result": None} for i, check in RULES]
     return rows
@@ -114,6 +134,19 @@ def screen_verdict(differences) -> str:
 
 
 class ReportGenerator:
+    def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
+        full = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+        cmp = full.get("comparison", {})
+        # Issues reuse the checks' own PASS bands: two findings are "the same
+        # issue" when they differ by less than a check would notice.
+        self.group = full.get("reporting", {}).get("group_findings", True)
+        self.group_args = {
+            "color_pass_de": cmp.get("color", {}).get("brand_bands", {}).get("pass", 3.0),
+            "size_pass": cmp.get("size_bands", {}).get("pass", 0.05),
+            "position_step": full.get("matching", {}).get("group_shift", {})
+                                 .get("max_spread_norm", 0.01),
+        }
+
     def generate(self, production_doc, client_doc, differences) -> dict:
         counts = {}
         for d in differences:
@@ -168,7 +201,20 @@ class ReportGenerator:
                 "class": reference.class_ if reference else None,
                 "text": reference.text if reference else None,
                 "details": d.details,
+                # Where the finding is, for the results page and for accepting it.
+                "production_bbox_norm": p.normalized_bbox if p else None,
+                "client_bbox_norm": c.normalized_bbox if c else None,
+                "client_center_norm": ([c.normalized_bbox[0] + c.normalized_bbox[2] / 2,
+                                        c.normalized_bbox[1] + c.normalized_bbox[3] / 2]
+                                       if c and c.normalized_bbox else None),
             })
+        accepted_findings = [
+            {"type": d.type, "spec_id": spec_id(d, client_by_id.get(d.client_id)
+                                                 or prod_by_id.get(d.production_id)),
+             "production_id": d.production_id, "client_id": d.client_id,
+             "accepted": d.details["accepted"]}
+            for d in differences if d.details.get("accepted")]
+        acceptances = next((d.details for d in differences if d.type == "ACCEPTANCES"), None)
 
         summary = {
             "matched_pairs": matched_pairs,
@@ -182,18 +228,35 @@ class ReportGenerator:
             # Record count, kept for debugging; never read it as an element count.
             "difference_records": len(differences),
         }
+        if acceptances is not None:
+            summary["accepted"] = len(accepted_findings)
+        level = next((d.details for d in differences if d.type == "MATCH_LEVEL"), None)
+        if level is not None:
+            summary["match_level"] = level["level"]
+        issues = group_findings(findings, **self.group_args) if self.group else None
+        if issues is not None:
+            summary["issues"] = len(issues)
         if not comparable:
             summary["warning"] = "Nothing comparable on this screen — extraction found no matchable elements."
-        return {
+        report = {
             "screen": production_doc.screen_id,
+            "client_screen": client_doc.screen_id,
             "verdict": screen_verdict(differences),
             "warnings": sum(1 for f in findings if f["verdict"] == "FAIL" and f["severity"] == "Minor"),
             "similarity_percent": similarity,
             "summary": {**summary, **counts},
             "findings": findings,
-            "coverage": coverage(findings),
+            "coverage": coverage(findings, level["skipped"] if level else (),
+                                 level["level"] if level else None),
             "confidence": {"production": confidence(production_doc), "client": confidence(client_doc)},
         }
+        if issues is not None:
+            # Presentation only: findings, verdict and similarity are unchanged.
+            report["issues"] = issues
+        if acceptances is not None:
+            report["accepted"] = accepted_findings
+            report["stale_acceptances"] = acceptances["stale"]
+        return report
 
     @staticmethod
     def save_json(report: dict, path: Path):

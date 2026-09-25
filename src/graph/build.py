@@ -43,7 +43,7 @@ def _iou(bbox_a: list, bbox_b: list) -> float:
 
 class UIGraphBuilder:
     def __init__(self, config_path: Path = DEFAULT_CONFIG_PATH):
-        cfg = yaml.safe_load(Path(config_path).read_text()).get("graph", {})
+        cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")).get("graph", {})
         self.containment_min_overlap = cfg.get("containment_min_overlap", 0.9)
         self.alignment_epsilon = cfg.get("alignment_epsilon_norm", 0.02)
         self.adjacency_max_gap = cfg.get("adjacency_max_gap_norm", 0.05)

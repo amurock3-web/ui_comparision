@@ -96,13 +96,19 @@ venv), launched as a subprocess.
 
 `config/detector.yaml`'s `python_path` holds the interpreter for this Windows checkout, so the
 scripts run with no shell setup. To use a different one — the Linux box, a moved venv — set the
-environment variable below, which takes precedence; nothing loads a .env file:
+environment variable below, which takes precedence (the scripts load no .env file; the
+web-app launcher does, see below):
 
 bash
 # Windows PowerShell
 $env:UI_DETECTOR_PYTHON = "C:\Users\pralhadraj.joshi\UI_Detection_model_training\.venv\Scripts\python.exe"
 # Linux
 export UI_DETECTOR_PYTHON=/path/to/UI_Detection_model_training/.venv/bin/python
+
+For the web app, `UI Compare.bat` (Windows) and `start.sh` (Linux) read the same variable from a
+`.env` file in the project root (`UI_DETECTOR_PYTHON=...`, gitignored), so nothing has to be set
+by hand. `python -m src.health` checks the detector Python, weights, PaddleOCR, configs, Edge and
+a writable `output/` without loading any model.
 
 The weights `models/ui16_v1/best.pt` are not in git; copy them from
 `UI_Detection_model_training/models/`. If neither the variable nor `python_path` names a file

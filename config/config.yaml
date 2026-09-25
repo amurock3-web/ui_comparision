@@ -16,6 +16,16 @@ matching:
   # containment is weaker evidence: a small box sits inside any large box it
   # overlaps. 0 restores plain IoU.
   containment_credit: 0.5
+  # Pass 3 (matcher._rescue): leftovers of the same class, centres within
+  # max_center_distance of the diagonal (after the group shift, = C1's fail
+  # band), texts agreeing or one side empty, each other's nearest by
+  # min_margin -> paired and judged normally; a near-tie -> REVIEW. Trending
+  # Search: the search bar was MISSING + EXTRA because OCR gave one side no text.
+  rescue:
+    enabled: true
+    max_center_distance: 0.03
+    min_text_score: 0.5
+    min_margin: 0.01
   weights:
     class: 0.25
     text: 0.25
@@ -44,6 +54,11 @@ matching:
     # Every anchor must lie within this of the median dx/dy, or the members did
     # not move as one piece and no shift is applied. 0.01 = 10.8 px wide.
     max_spread_norm: 0.01
+    # Report a nested container once when it carries the same shift as the
+    # container above it (within max_spread_norm): on the SunNXT language pair
+    # "screen" -136 px and the sheet tabs -139 px are one sheet move. Reporting
+    # only - member residuals are unchanged. false = one GROUP_SHIFT per container.
+    merge_nested: true
 
 comparison:
   structural_similarity_threshold: 0.5
@@ -62,11 +77,120 @@ comparison:
   vlm_grounded_position_bands: {pass: 0.04, fail: 0.08, major: 0.12}
   # C2: max(width, height) relative change. <= pass PASS, <= fail REVIEW, else FAIL Major.
   size_bands: {pass: 0.05, fail: 0.15}
+  # C2 re-measured from pixels (src/comparison/pixel_geometry.py): a tight box
+  # of what stands out from each crop's own background, crop = detector box +
+  # margin. Detector box wobble was the largest noise source (10 SIZE findings
+  # on the home pair, 5 on the language pair). The measurement is always written
+  # to SIZE findings' details.pixel_check; enabled: true also drops a finding
+  # when both tight boxes are reliable and agree within size_bands.pass.
+  # Switched on 2026-09-25 after the margin table (docs/memory.md, Phase 14):
+  # drops 4 of 15 SIZE findings on the two SunNXT pairs.
+  pixel_verify:
+    enabled: true
+    margin_frac: 0.05   # measured 2026-09-25: 0.15 inflated tab sizes, 0.0 left no background ring
+    margin_min_px: 2
+    contrast_threshold: 12.0   # dE76 from the crop's border-ring background
+    min_pixels: 16
+  # Match levels (src/comparison/regions.py): how strict a screen or a region
+  # of it is. Most specific wins: region > config/screen_rules/<client screen
+  # id>.yaml > default. A skipped finding becomes PASS/ignored, and coverage
+  # shows its family as "skipped (LEVEL)". STRICT + no rules file = as before.
+  match_levels:
+    default: STRICT
+    rules_dir: screen_rules          # relative to config/
+    skip:
+      STRICT: []
+      LAYOUT: [D, E, F]              # structure and geometry only
+      IGNORE_COLORS: [D]
+    # The top fusion.status_bar_height_norm band as a NONE region (14.1). Fusion
+    # already ignores what lies wholly inside it; this also catches elements
+    # that are at least half inside.
+    status_bar_region: true
+    regions: []                      # extra default regions, same shape as a rules file
+  # 15.1 dynamic text: a static label whose VALUE may change but whose FORMAT
+  # must not (a plan price, a duration, an episode number). Both sides matching
+  # the same pattern -> no E1; the design matching one and production none ->
+  # E1 FAIL "format broken". Full, case-insensitive match after trim. Screen
+  # rules files may add patterns. Checked 2026-09-25 against every saved OCR
+  # text: none of these match a static-text label yet, so this is idle today.
+  dynamic_text:
+    enabled: true
+    patterns:
+      duration: '^\d{1,2}\s?h(\s?\d{1,2}\s?m)?$|^\d{1,3}\s?(m|min|mins)$'
+      episode: '^S\d{1,2}\s?E\d{1,3}$'
+      price: '^(₹|Rs\.?)\s?\d{1,3}(,\d{3})*(\.\d{1,2})?(\s?/\s?(month|mo|year|yr))?$'
+      date: '^\d{1,2}\s(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(\s\d{4})?$'
+  # 14.4 accepted differences (src/comparison/accepted.py): findings a human
+  # accepted with `python -m scripts.accept_finding` come back as PASS with
+  # details.accepted. Path is relative to the project root; no file = nothing
+  # accepted, output as before. Entries that matched nothing are listed as stale.
+  accepted_differences:
+    enabled: true
+    path: baselines/accepted_differences.yaml
+    center_tolerance_norm: 0.02   # the accepted element may not have moved further
+  # §H: an element with >= graph.loose_containment_overlap of its box on a
+  # poster card is live content even when fusion gave it no parent (detector
+  # badges never get one). Trending Search run: 12 of 29 findings were "Free" /
+  # "Most Viewed" / crown badges on posters that had changed. false = parent only.
+  badges_on_cards_are_dynamic: true
+  # F3: a FAIL on an element the layout graph marks cut off becomes REVIEW
+  # (original verdict kept in details), and B8 on a poster card is REVIEW at
+  # most - a cut-off card is scroll position. false = as before.
+  cap_clipped_to_review: true
+  # F4 (src/comparison/text_cleanup.py): OCR reads icons as characters glued to
+  # labels ("9 Languages", "... Live TV... 0"). A standalone 1-2 char token of
+  # digits/symbols at either end of the label is dropped before E1 and the
+  # matcher's text score, on both sides. Text-only: fused JSONs keep no token boxes.
+  glyph_cleanup:
+    enabled: true
+    max_len: 2
+    classes: [tab_item, button, search_bar, section_title]
+  # E4 (src/comparison/script_checks.py): a matched label whose dominant
+  # script differs (Latin vs Tamil...) is a wrong-language build, Critical,
+  # reported instead of E1. Both sides need a dominant script over min_share.
+  language:
+    enabled: true
+    min_share: 0.6
+  # D7 contrast + D3 text colour on matched static text
+  # (src/comparison/contrast_checks.py). Measured 2026-09-25 on the SunNXT
+  # pairs (docs/memory.md Phase 15): only "SUNNXT SHORTS" and "Profile" cross.
+  # WCAG's large-text 3:1 rule is not applied: box height includes icons.
+  contrast:
+    enabled: true
+    pass_ratio: 4.5                    # WCAG AA
+    fail_ratio: 3.0
+    same_as_template_tolerance: 0.5    # PASS when production >= design ratio - this
+    text_color_bands: {pass: 5.0, fail: 10.0}   # D3, dE2000
+    min_cluster_de: 10.0               # text/background closer than this = not measured
+    # F5: whole labels (OCR as read, spaces ignored) that are a logo, not
+    # text - never measured for text colour. Exact match, so "SUNNXT SHORTS"
+    # (a real text tab on the language screen) is still measured.
+    logo_wordmarks: ["SUN NXT Home", "SUN NT Home", "SUNNXT Home"]
+    # F5: a tab_item stacks icon over label; only the bottom band is measured.
+    tab_text_band: 0.4
+  # F1 logo / F2 icon (SSIM) and F3 broken image (src/comparison/image_checks.py).
+  # F3 measured 2026-09-25: benchmark blank_poster cards std 0.0 / edges 0.0;
+  # flattest real card anywhere std 17.4.
+  image:
+    enabled: true
+    logo_classes: [logo]
+    icon_classes: [icon]
+    logo_bands: {pass: 0.90, fail: 0.75}
+    icon_pass: 0.85
+    card_classes: [content_card, cast_card, celebrity_card]
+    flat_max_std: 5.0
+    flat_max_edge_density: 0.01
   # E1: label text is compared only for these classes; everything else is
   # dynamic content (§H). Exact match PASS, one-character slip REVIEW, else FAIL.
   static_text_classes: [tab_item, button, section_title, search_bar]
   # B1: missing element of these classes is Critical (others Major).
   critical_classes: [button, tab_item, navigation_bar, logo]
+  # When a screen-level check fails Critical (A1 rotated, A2 blank), stop and
+  # say that once instead of also reporting every element as moved and resized.
+  # On the benchmark's rotate cases the report was A1 plus a wall of
+  # A5/B1/B2/B9/C1/C2 - all true, all artefacts of the rotation. Theme (A3) and
+  # scaling (A5) are Major, not Critical, so they never stop the comparison.
+  stop_on_critical_screen_failure: true
   # A1-A5 screen-level checks (src/comparison/screen_checks.py): the two images
   # compared as whole frames, before any detection.
   screen:
@@ -111,6 +235,16 @@ comparison:
     alignment_tolerance_norm: 0.015
     # Fewest items in a bar where order can meaningfully differ.
     min_tab_items: 2
+    # B5 fires on the neighbours of whatever actually changed: remove one tab
+    # and the items it lined up with are no longer aligned, so one removal is
+    # reported as B1 plus two B5s. Drop the alignment finding when its own
+    # element is already named by a missing/extra/moved/resized finding.
+    # 6 of the benchmark's 15 false alarms were this.
+    drop_alignment_collateral: true
+    # ALIGNED_WITH is a chain, so three aligned items give two links and a
+    # broken column is reported twice. Merge same-axis findings that share an
+    # element into one finding naming the whole group.
+    merge_alignment_chains: true
 
 vlm:
   model: qwen2.5vl:7b
@@ -188,3 +322,9 @@ graph:
   # 0 disables. Nothing consumes NEAR yet - it is the substrate for the
   # paper's recursive neighbour matching (§3.3).
   knn_k: 5
+
+reporting:
+  # Group repeated findings into issues (src/reporting/grouping.py): on the home
+  # pair 12 D1 findings were one colour difference. Presentation only - findings,
+  # verdict and similarity are unchanged. false = no "issues" key, HTML as before.
+  group_findings: true

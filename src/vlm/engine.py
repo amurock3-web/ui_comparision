@@ -196,7 +196,7 @@ class VLMEngine:
     """Thin, swappable wrapper around a local Ollama vision model."""
 
     def __init__(self, model: str = None, prompt_version: str = None, config_path: Path = DEFAULT_CONFIG_PATH):
-        cfg = yaml.safe_load(Path(config_path).read_text()).get("vlm", {})
+        cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")).get("vlm", {})
         self.model = model or cfg.get("model", "qwen2.5vl:7b")
         self.prompt_version = prompt_version or cfg.get("prompt_version", "v2_qwen2.5vl_classify_only")
         self.max_image_dim = cfg.get("max_image_dim", 1280)  # None/0 = no downscale, send native resolution
