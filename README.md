@@ -61,6 +61,7 @@ docker compose exec app bash
 ```
 
 The code is bind-mounted and never copied into the image. See [`docs/environment.md`](docs/environment.md).
+Moving to the Ubuntu GTX 1070 machine: [`docs/migration_ubuntu_gpu.md`](docs/migration_ubuntu_gpu.md) (plan, not yet done).
 
 ## Usage
 
@@ -144,6 +145,20 @@ python -m scripts.export_tickets <report.json>                             # CSV
 - `run_batch` pairs each screenshot with a baseline by file name (or `--baseline-by screen-id`), writes `output/batch/testN_<folder>/summary.json` + `summary.html`, and never stops on one failed item.
 - Accepted differences go to `baselines/accepted_differences.yaml`; the next run reports a matching finding as PASS (accepted) and lists entries that matched nothing as stale.
 - Ticket columns are set in `config/ticket_export.yaml`.
+
+## Benchmark
+
+```bash
+python -m scripts.make_benchmark       # labelled defect copies of a few screens (input/benchmark/<screen>/)
+python -m scripts.run_benchmark        # ~20 min (OCR on every case): caught / missed / false alarms
+python -m scripts.run_benchmark --real-only   # ~10 s: only the real pairs, from cached fused JSONs
+```
+
+Synthetic cases are one known edit each (rotate, blank poster, remove element, swap tabs, ...). Real
+cases live in `input/benchmark/real/<name>/` with the two screenshots, their cached fused JSONs and a
+`manifest.json` naming the expected verdict and what must, may and must not be flagged, so a fixed
+false alarm cannot quietly come back. Results go to `output/benchmark/testN_benchmark/`
+(`results.json`, `scorecard.html`).
 
 ## Tests
 

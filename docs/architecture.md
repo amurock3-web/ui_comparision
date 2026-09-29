@@ -207,6 +207,17 @@ such as prices compared by pattern, not value), D1/D5 fill colour, D7 contrast a
 image (an almost-flat card, unless the design card is flat too). Nested GROUP_SHIFTs carrying the
 same move are reported once.
 
+False-alarm guards (Phase 14b):
+- Dynamic content (§H) also covers an element with >= `graph.loose_containment_overlap` of its box
+  on a poster card, since fusion gives detector badges no parent (`matcher._is_dynamic`).
+- Matching pass 3 (`matcher._rescue`) pairs same-class leftovers that are each other's nearest
+  within C1's fail band, at least one side labelled; a near-tie stays unmatched as REVIEW.
+- OCR'd icon glyphs at either end of a label ("9 Languages") are dropped before E1 and the text
+  score (`text_cleanup.clean_label`); a label with no text read on one side is REVIEW, not E1 FAIL.
+- A FAIL on an element the layout graph marks cut off is capped at REVIEW (original kept); B8 on a
+  poster card is REVIEW. An element whose centre lies inside a bar is part of it, not clipped by it.
+- D3/D7 need text on both sides, skip logo labels, and on tabs measure only the label band.
+
 Then two filters that every entry point shares (rematch, run_comparison, the app):
 1. Match levels (`src/comparison/regions.py`): the smallest covering region, else
    `config/screen_rules/<client screen id>.yaml`, else `comparison.match_levels.default`, decides

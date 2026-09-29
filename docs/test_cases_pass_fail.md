@@ -161,6 +161,16 @@ Everything else comes later.
 The report's Coverage table lists every row as checked, "skipped (LEVEL)" when the screen's match
 level turned its family off, or not built. Skipped is never shown as PASS.
 
+## Guards against false alarms (how §H and §I are applied)
+
+- A badge, label or icon sitting on a poster card is dynamic content, even when the detector did
+  not link it to the card: its presence depends on the title (Free, Most Viewed, premium crown).
+- A cut-off element (screen edge, bar or overlay in front of it) is REVIEW at most, never FAIL;
+  a cut-off card is scroll position.
+- A label OCR could not read on one side is REVIEW (§I), and characters OCR read off an icon
+  ("9 Languages") are not a label change.
+- One element seen at slightly different places is reported once (moved), not as missing + extra.
+
 ## Match levels, regions and accepted differences
 
 Not spec rows, but they decide which rows report:

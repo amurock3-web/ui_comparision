@@ -1,7 +1,9 @@
 """
 UI element detector — the model bundle from UI_Detection_model_training.
 
-Two engines behind one `detect(image_path) -> list[UIElement]` call:
+Two engines behind one `detect(image_path) -> list[UIElement]` call, plus
+`detect_many(paths)` for several images at once (one YOLO process, one model
+load; used by the jitter measurement, src/detector/jitter.py):
 
 - GTStubDetector replays the bundle's gt_detections.json (hand labels,
   confidence 1.0). It is a perfect detector, so a bug seen while using it is
@@ -95,6 +97,9 @@ class _Detector:
             ))
         return elements
 
+    def detect_many(self, image_paths) -> list[list[UIElement]]:
+        return [self.detect(p) for p in image_paths]
+
 
 class GTStubDetector(_Detector):
     def __init__(self, bundle, **tiers):
@@ -118,11 +123,16 @@ class YOLODetector(_Detector):
         self.python = python
 
     def detect(self, image_path) -> list[UIElement]:
+        return self.detect_many([image_path])[0]
+
+    def detect_many(self, image_paths) -> list[list[UIElement]]:
         r = subprocess.run([self.python, str(WORKER), "--bundle", str(self.bundle.path),
-                            "--image", str(image_path)], capture_output=True, text=True)
+                            "--image", *map(str, image_paths)], capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"yolo_worker failed ({r.returncode}):\n{r.stderr or r.stdout}")
-        return self._to_elements(json.loads(r.stdout.strip().splitlines()[-1]), "yolo")
+        # One JSON line per image, printed last; anything before is library chatter.
+        lines = r.stdout.strip().splitlines()[-len(image_paths):]
+        return [self._to_elements(json.loads(line), "yolo") for line in lines]
 
 
 def load_detector(config_path=DEFAULT_CONFIG_PATH):

@@ -6,6 +6,9 @@ environment is the one currently checked out. Check `memory.md` for which enviro
 actually active before relying on the GPU numbers below; the Windows/local checkout is not
 obsolete, it is a separate, still-used environment.
 
+For moving the current code to the Ubuntu GTX 1070 box (detector venv, sm_61 torch, app port, PDF,
+read-only input/, 8 GB VRAM) see `migration_ubuntu_gpu.md`: a plan, not yet carried out.
+
 1. Platform
 
 Running inside a Docker container, not a bare Linux install.

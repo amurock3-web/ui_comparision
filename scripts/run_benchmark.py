@@ -3,6 +3,7 @@
     python -m scripts.run_benchmark                 # every screen in input/benchmark/
     python -m scripts.run_benchmark ss031 ss012     # those screens only (no real pairs)
     python -m scripts.run_benchmark --real-only     # real pairs only: seconds, cached fused JSONs
+    python -m scripts.run_benchmark --cached test3_benchmark   # re-score a saved run: seconds, no OCR
 
 Real pairs (input/benchmark/real/<name>/): a genuine production/client
 screenshot pair with production.<ext>, client.<ext>, manifest.json and the
@@ -45,6 +46,7 @@ from pathlib import Path
 from scripts._test_utils import next_test_number
 from src.comparison.differ import DifferenceEngine
 from src.comparison.matcher import ElementMatcher
+from src.graph.layout import LayoutGraphBuilder
 from src.pipeline import build_document, compare_documents
 from src.reporting.html_report import CSS, VERDICT_COLORS, write_html_report
 from src.reporting.report import IMPLEMENTED, ReportGenerator
@@ -97,11 +99,23 @@ def score(case, report, prod_doc, client_doc) -> dict:
             "false_alarms": [f for f in findings if f not in on_target]}
 
 
-def run_screen(screen_dir: Path, cases_dir: Path) -> list:
+def _document(image: Path, screen_id: str, side: str, cached: Path | None, name: str):
+    """build_document, or with --cached the fused JSON an earlier run saved as `name`.
+    A missing file is an error: silently falling back would pay for OCR."""
+    if cached is None:
+        return build_document(image, screen_id, side)
+    path = cached / name
+    if not path.is_file():
+        raise SystemExit(f"--cached: {path} missing (that run predates the case or the manifest changed)")
+    doc = UIDocument.model_validate_json(path.read_text(encoding="utf-8"))
+    return doc, LayoutGraphBuilder().build(doc)
+
+
+def run_screen(screen_dir: Path, cases_dir: Path, cached: Path | None = None) -> list:
     manifest = json.loads((screen_dir / "manifest.json").read_text(encoding="utf-8"))
     screen = manifest["screen"]
     client_image = screen_dir / manifest["client"]
-    client_doc, client_graph = build_document(client_image, screen, "client")
+    client_doc, client_graph = _document(client_image, screen, "client", cached, f"{screen}_client_fused.json")
     # Saved so a scoring change can be re-checked with scripts.rematch in
     # seconds instead of paying the ~50 s OCR pass per case all over again.
     client_doc.save_json(cases_dir / f"{screen}_client_fused.json")
@@ -109,7 +123,8 @@ def run_screen(screen_dir: Path, cases_dir: Path) -> list:
     for case in manifest["cases"]:
         print(f"\n=== {screen} / {case['id']} (expect {case['spec_id'] or 'PASS'}) ===")
         prod_image = screen_dir / case["production"]
-        prod_doc, prod_graph = build_document(prod_image, f"{screen}_{case['id']}", "production")
+        prod_doc, prod_graph = _document(prod_image, f"{screen}_{case['id']}", "production", cached,
+                                         f"{screen}_{case['id']}_production_fused.json")
         prod_doc.save_json(cases_dir / f"{screen}_{case['id']}_production_fused.json")
         match = ElementMatcher().match(prod_doc, client_doc, prod_graph, client_graph)
         # The images carry the screen-level (A1/A2/A3/A5) and colour (D1/D2/D5)
@@ -313,8 +328,14 @@ def write_scorecard(summary, rows, path: Path, real_summary=None, real_rows=()):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--real-only"]
-    real_only = "--real-only" in sys.argv[1:]
+    argv = sys.argv[1:]
+    cached = None
+    if "--cached" in argv:
+        i = argv.index("--cached")
+        cached = OUTPUT_ROOT / argv[i + 1] / "cases"
+        argv = argv[:i] + argv[i + 2:]
+    args = [a for a in argv if a != "--real-only"]
+    real_only = "--real-only" in argv
     screens = [] if real_only else args or sorted(
         p.name for p in BENCH_DIR.iterdir() if (p / "manifest.json").is_file())
     if not screens and not real_only:
@@ -326,7 +347,7 @@ def main():
 
     rows = []
     for screen in screens:
-        rows += run_screen(BENCH_DIR / screen, cases_dir)
+        rows += run_screen(BENCH_DIR / screen, cases_dir, cached)
     real_rows = run_real(cases_dir) if real_only or not args else []
 
     summary = summarise(rows)

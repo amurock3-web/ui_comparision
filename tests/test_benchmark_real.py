@@ -45,3 +45,9 @@ def test_trending_search_manifest_loads():
     assert m["type"] == "real" and m["expected_verdict"] in ("PASS", "REVIEW", "FAIL")
     for key in ("must_not_flag", "may_flag", "must_flag"):
         assert all("spec_id" in r for r in m[key])
+
+
+def test_cached_rescore_missing_fused_json_is_loud(tmp_path):
+    from scripts.run_benchmark import _document
+    with pytest.raises(SystemExit, match="--cached"):
+        _document(Path("client.png"), "ss012", "client", tmp_path, "ss012_client_fused.json")

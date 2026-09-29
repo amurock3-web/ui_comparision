@@ -816,3 +816,70 @@ CSS, F7 real benchmark case, F4 `text_cleanup.py`), the shared matcher/differ/la
   expected REVIEW may be what needs changing. Human call.
 - Other pairs: lang 23 -> 21, home 41 -> 38 (badges on cards), self-compare PASS 100%.
 - Full suite: 272 pass, the same 15 pre-existing failures.
+
+**Committed 2026-09-25** as `ae58696` on branch `phase-13.1-16` (pushed to origin; not merged into
+main yet). Open: decide whether the Trending Search case's expected verdict should be FAIL (the
+remaining D1 Home-logo and C2 Search-dot findings look real) or those two need more work.
+Also open: `docs/migration_ubuntu_gpu.md` (move to the Ubuntu GTX 1070 box inside the sandboxed
+Docker setup) is written but not carried out; no browser click-through of the app; no real
+add_baseline / run_batch / full benchmark run; ticket columns in `config/ticket_export.yaml` are
+still the defaults.
+
+## Phase 17 — detector box wobble (jitter), measure first — 2026-09-28
+
+Plan: `phase17_jitter_prompts.md` (outside the repo), revised after review: measure before
+building, a batched detector, a static per-class tolerance tried before a runtime per-element one.
+Caution carried into the plan: not every small C2 on a mockup-vs-production pair is wobble; the
+14.2 margin table showed the pixel tight-box agreeing with the box on Downloads (0.075 / 0.077).
+
+Built (nothing run yet: no pytest, no benchmark, no detector):
+- **17.0** `run_benchmark --cached <testN_benchmark>`: re-scores a saved run from its per-case fused
+  JSONs, no detector/OCR; a missing JSON is an error, never a silent OCR fall-back. test3's cache
+  covers all 22 current cases. Gives the free "before" number: C2/B1 false alarms on untouched
+  elements of defect cases are the wobble signal (test3: C2 5, B1 2, under the older differ).
+- **17.1** `yolo_worker.py` takes several `--image` paths (model loaded once, one JSON line per
+  image); `detect_many(paths)` on every detector, `detect()` now routes through it.
+  `src/detector/jitter.py`: 8 variants (shift 1,0 / 0,1 / 2,2 / 3,3; resample 0.85 / 0.95;
+  jpeg 70 / 90) and a pure `measure_wobble` giving, per original box, matched_in, class_flips and
+  the max |deviation| in the checks' own units (size = C2's max rel w/h, diag = C1's centre move
+  over the screen diagonal). `scripts/measure_jitter.py`: per-class/per-source table
+  (sunnxt / jiohotstar / mockup), flags classes whose p95 x sqrt(2) crosses the C1/C2 pass band.
+  Output `output/jitter/testN_measure/`. Tests: `tests/test_jitter.py` (fake detections).
+
+**Results 2026-09-28.** pytest (jitter, benchmark_real, detector): 17 pass, 1 skip (real-YOLO test).
+
+17.0 `run_benchmark --cached test3_benchmark` -> `test6_benchmark` (seconds): caught 15/19, as other
+3, missed 1, identity clean 3/3, **false alarms 5** (C2 3, D1 1, B4 1) vs test3's 15 (B5 6, C2 5,
+B1 2, D1 1, B4 1) — the Phase 13.1+ fixes removed the B5/B1 ones. The 3 C2 left:
+- ss012 "VILLAN" x2 (blank_poster, shift_title): an OCR-only box (class None), 36 vs 39 px high =
+  0.077. Text-box wobble of 3 px, not YOLO; a detector-class table cannot reach it.
+- ss012 remove_element "Search" tab: 128 vs 100 px wide (0.217, FAIL). The painted-out row
+  (x 187-882, y 2002-2102) does not touch Search (x 46-174, y 2192+); Search grew 17 px left and
+  11 px right. So YOLO boxes change with edits elsewhere on the screen - non-local context
+  wobble, twice the largest synthetic tab_item p95 (0.096). Synthetic jitter under-measures it.
+- The VILLAN box moves with edits elsewhere too: [46,83,122,36] in blank_poster/shift_title,
+  [44,81,125,39] in remove_element, client [43,81,126,39]. OCR box wobble, source "ocr".
+**Regression found (cause traced 2026-09-29, not fixed):** remove_element on jiohotstar (TV tab)
+was B1 in test3, now missed. The matcher does report client el_0020 "TV" as MISSING_IN_PRODUCTION,
+but the differ marks it PASS `ignored: dynamic content`: the TV tab [295,2013,54,37] lies wholly
+inside content_card el_0010 [32,1964,333,158], and the F1 rule (badge on a poster card = dynamic,
+`matcher._is_dynamic` via `on_card_overlap`) treats anything on a card as dynamic. On jiohotstar
+the detector boxes the tab row as content cards, so the tabs on it are ignored. ss031
+remove_element (B1 -> "caught as other") not traced yet.
+
+17.1 `measure_jitter` -> `output/jitter/test1_measure/` (1 m 29 s, 8 screens x 9 images):
+- Position (C1): diag p95 <= 0.007 in every class with n >= 5 except jiohotstar content_card
+  (0.011, n 11). C1's 0.01 band is outside detector wobble. Not a C1 problem.
+- Detection is stable: 98-100% found in every variant, class flips ~0 (icon/metadata_text n 2).
+  The planned "unstable element -> cap B1 at REVIEW" (17.4 item 3) has nothing to act on.
+- Size (C2) p50 / p95: content_card 0.007 / 0.055, tab_item 0.025 / 0.096, overlay_badge 0.036 /
+  0.082, section_title 0.023 / 0.069. Flagged (p95 x sqrt 2 > 0.05): content_card, tab_item,
+  overlay_badge, section_title (+ icon, metadata_text on n = 2). Medians are well inside the band;
+  the tail is. Worst rows are malformed boxes, not normal wobble: ss012's merged 695-px tab
+  (0.207), cards cut off at the top edge (0.362, 0.113), a jiohotstar card (0.231).
+- Sources broadly agree (tab_item mockup 0.078 vs sunnxt 0.105), so no case for 17.4 runtime.
+
+Reading: detector wobble is real only for size, and only in the tail; p95-based per-class
+tolerance (tab_item ~0.136) would eat most of C2's REVIEW band and turn real defects like the
+Search-tab +24% into REVIEW. And none of the 3 remaining benchmark C2 false alarms is YOLO
+wobble. Tolerance as planned in 17.2 would not remove them.

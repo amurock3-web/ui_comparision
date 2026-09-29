@@ -18,7 +18,8 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - Layout graph from a saved fusion JSON (no 90 s rerun): `python -m scripts.build_graph_from_fusion <json> --layout`
 - Compare a pair (writes the HTML report): `python -m scripts.run_comparison <production> <client>`
 - Redo matching/differ/report from saved fused JSONs (seconds, no detector/OCR): `python -m scripts.rematch <production_fused.json> <client_fused.json>` (same JSON twice = self-compare)
-- Known-defect benchmark: `python -m scripts.make_benchmark` then `python -m scripts.run_benchmark`
+- Known-defect benchmark: `python -m scripts.make_benchmark` then `python -m scripts.run_benchmark` (~20 min)
+- Real-pair cases only (input/benchmark/real/, cached fused JSONs, ~10 s, no OCR): `python -m scripts.run_benchmark --real-only`
 - Drag-and-drop UI: `UI Compare.bat` or `python -m src.app` (http://127.0.0.1:8765, next free port if taken; runs kept in output/app/)
 - Rematch overrides: `--match-level STRICT|LAYOUT|IGNORE_COLORS`, `--rules <yaml>`
 - Baselines: `python -m scripts.add_baseline <client_image> --screen <id>` (~1 min), then
@@ -47,6 +48,7 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
   history.py (new/fixed/still open), html_report.py, visualize.py
 - src/baselines.py: stored client designs; src/app/: the web app package (server, jobs, actions, library, static/)
 - docs/memory.md: project history and benchmark results
+- docs/migration_ubuntu_gpu.md: plan for moving to the Ubuntu GTX 1070 box in the sandboxed Docker setup (not done yet)
 
 ## How to work with me
 - Discuss the analysis and the plan before changing code; keep edits narrowly scoped to what was asked.

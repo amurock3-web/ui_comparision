@@ -136,7 +136,7 @@ mockups.
 4. Class refiner / ontology v3 / multi-app data only if results show
    they are the bottleneck
 
-## Phases 12-16 (2026-09-22 to 2026-09-25, built)
+## Phases 12-16 (2026-09-22 to 2026-09-25, built; branch phase-13.1-16)
 
 Details and measurements in `memory.md`.
 
@@ -145,6 +145,9 @@ Details and measurements in `memory.md`.
   checks; stop on a Critical screen failure; B5 collateral dropped; B4 tab swaps.
 - **14**: nested group shifts merged; C2 re-measured from pixels; findings grouped into issues;
   accepted differences.
+- **14b**: false-alarm fixes from a real pair (29 -> 16 findings): badges on cards dynamic, rescue
+  pass, clipped -> REVIEW, icon-glyph cleanup, D3 on text only, PDF print layout, real-pair
+  benchmark case.
 - **15**: match levels + regions, dynamic text + floating regions, contrast (D7) and text colour
   (D3), language (E4), logo / icon / broken image (F1-F3), baselines + batch + run history, ticket
   CSV export.
