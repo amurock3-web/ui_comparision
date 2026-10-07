@@ -6,6 +6,8 @@ Per screen you can relax the comparison (match levels STRICT / LAYOUT / IGNORE_C
 
 Everything runs locally: a fine-tuned YOLO UI detector, PaddleOCR, an optional local VLM (Ollama) and deterministic graph-based matching.
 
+Demo: [`docs/demo/ui_comparison_pipeline.mp4`](docs/demo/ui_comparison_pipeline.mp4) (pipeline walkthrough, 5 MB).
+
 ## Pipeline
 
 ```
