@@ -251,6 +251,8 @@ def summarise(rows) -> dict:
         "defect_cases": len(defects),
         "caught": sum(r["outcome"] == "caught" for r in defects),
         "caught_as_other": sum(r["outcome"] == "caught as other" for r in defects),
+        # What a tester needs: sent to the edited spot under any test id. Target: all of them.
+        "flagged_at_edit": sum(r["outcome"] in ("caught", "caught as other") for r in defects),
         "missed": sum(r["outcome"] == "missed" for r in defects),
         "identity_clean": sum(r["outcome"] == "pass ok" for r in rows),
         "identity_cases": sum(1 for r in rows if not r["expected"]),
@@ -279,6 +281,7 @@ def write_scorecard(summary, rows, path: Path, real_summary=None, real_rows=()):
            f"{len({r['screen'] for r in rows})} screens. Each case is a copy of a screenshot with one "
            f"known defect (scripts/make_benchmark.py), compared against the untouched screenshot.</div>",
            "<div class='stats'>"
+           f"<div class='stat'><b>{s['flagged_at_edit']}/{s['defect_cases']}</b>flagged at the edit</div>"
            f"<div class='stat'><b>{s['caught']}/{s['defect_cases']}</b>defects caught</div>"
            f"<div class='stat'><b>{s['caught_as_other']}</b>caught as another test</div>"
            f"<div class='stat'><b>{s['missed']}</b>missed</div>"
@@ -357,7 +360,8 @@ def main():
                                                      indent=2, ensure_ascii=False), encoding="utf-8")
     write_scorecard(summary, rows, out_dir / "scorecard.html", real_summary, real_rows)
     if rows:
-        print(f"\nCaught {summary['caught']}/{summary['defect_cases']}, "
+        print(f"\nFlagged at the edit {summary['flagged_at_edit']}/{summary['defect_cases']}; "
+              f"caught {summary['caught']}/{summary['defect_cases']}, "
               f"as other {summary['caught_as_other']}, missed {summary['missed']}, "
               f"false alarms {summary['false_alarms']}")
     if real_rows:

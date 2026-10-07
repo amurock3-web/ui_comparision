@@ -88,3 +88,60 @@ def test_unread_label_is_review_not_fail():
     prod = [_el("t", "button", 0.4, 0.5, text=None)]
     found = _open(_run(prod, client)[1], "TEXT_DIFFERENCE")
     assert [d.verdict for d in found] == ["REVIEW"]
+
+
+# ---- Phase 17 fixes --------------------------------------------------------
+
+def test_known_non_card_parent_wins_over_geometry():
+    # JioHotstar: the floating TV/Movies/Sports pill lies over a poster row.
+    card = _el("card", "content_card", 0.0, 0.8, w=0.35, h=0.1)
+    nav = _el("nav", "navigation_bar", 0.2, 0.82, w=0.5, h=0.05)
+    tab = _el("tv", "tab_item", 0.27, 0.84, w=0.05, h=0.03, text="TV").model_copy(update={"parent_id": "nav"})
+    assert not _is_dynamic(tab, {e.id: e for e in (card, nav, tab)})
+    on_card = tab.model_copy(update={"parent_id": "card"})
+    assert _is_dynamic(on_card, {e.id: e for e in (card, nav, on_card)})
+
+
+def test_removed_tab_on_a_floating_bar_over_posters_is_reported():
+    card = _el("card", "content_card", 0.0, 0.8, w=0.35, h=0.1)
+    nav = _el("nav", "navigation_bar", 0.2, 0.82, w=0.5, h=0.05)
+    tab = _el("tv", "tab_item", 0.27, 0.84, w=0.05, h=0.03, text="TV").model_copy(update={"parent_id": "nav"})
+    missing = _open(_run([card, nav], [card, nav, tab])[1], "MISSING_IN_PRODUCTION")
+    assert [d.client_id for d in missing] == ["tv"]
+
+
+def test_a_few_pixels_on_a_small_box_is_not_a_size_change():
+    client = [_el("t", "section_title", 0.04, 0.3, w=0.126, h=0.039, text="VILLAN")]
+    prod = [_el("t", "section_title", 0.04, 0.3, w=0.122, h=0.036, text="VILLAN")]  # 3-4 px, 8%
+    assert _open(_run(prod, client)[1], "SIZE_DIFFERENCE") == []
+
+
+def test_size_change_above_the_pixel_floor_is_still_reported():
+    client = [_el("s", "tab_item", 0.06, 0.9, w=0.100, h=0.1, text="Search")]
+    prod = [_el("s", "tab_item", 0.05, 0.9, w=0.128, h=0.1, text="Search")]  # 28 px, 22%
+    found = _open(_run(prod, client)[1], "SIZE_DIFFERENCE")
+    assert [d.verdict for d in found] == ["FAIL"] and found[0].details["change_px"][0] > 4
+
+
+def test_pixel_floor_zero_is_the_old_relative_rule():
+    client = [_el("t", "section_title", 0.04, 0.3, w=0.126, h=0.039, text="VILLAN")]
+    prod = [_el("t", "section_title", 0.04, 0.3, w=0.122, h=0.036, text="VILLAN")]
+    p, c = _doc(prod, "production"), _doc(client, "client")
+    graph = _graph({"grp": ["t"]})
+    engine = DifferenceEngine()
+    engine.size_min_px = 0
+    found = _open(engine.compare(p, c, graph, graph, ElementMatcher().match(p, c, graph, graph)),
+                  "SIZE_DIFFERENCE")
+    assert [d.verdict for d in found] == ["REVIEW"]
+
+
+def test_chrome_on_a_hero_card_is_compared_badges_are_not():
+    # SunNXT detail page: Subscribe and the back arrow sit on the hero, with no parent.
+    hero = _el("hero", "content_card", 0.0, 0.05, w=1.0, h=0.25)
+    subscribe = _el("sub", "button", 0.33, 0.19, w=0.32, h=0.04, text="Subscribe")
+    badge = _el("free", "overlay_badge", 0.9, 0.06, w=0.08, h=0.03, text="Free")
+    by_id = {e.id: e for e in (hero, subscribe, badge)}
+    assert not _is_dynamic(subscribe, by_id)
+    assert _is_dynamic(badge, by_id)
+    missing = _open(_run([hero], [hero, subscribe])[1], "MISSING_IN_PRODUCTION")
+    assert [d.client_id for d in missing] == ["sub"]

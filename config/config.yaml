@@ -77,6 +77,11 @@ comparison:
   vlm_grounded_position_bands: {pass: 0.04, fail: 0.08, major: 0.12}
   # C2: max(width, height) relative change. <= pass PASS, <= fail REVIEW, else FAIL Major.
   size_bands: {pass: 0.05, fail: 0.15}
+  # C2 pixel floor (12.3): a width or height change counts only above this many
+  # client pixels (±2 px per edge). Measured 2026-09-28 (scripts.measure_jitter,
+  # docs/memory.md Phase 17): detector box wobble median 2.6 px, p90 7.3 px.
+  # 0 = relative bands only (the old behaviour).
+  size_min_px: 4
   # C2 re-measured from pixels (src/comparison/pixel_geometry.py): a tight box
   # of what stands out from each crop's own background, crop = detector box +
   # margin. Detector box wobble was the largest noise source (10 SIZE findings
@@ -133,6 +138,10 @@ comparison:
   # badges never get one). Trending Search run: 12 of 29 findings were "Free" /
   # "Most Viewed" / crown badges on posters that had changed. false = parent only.
   badges_on_cards_are_dynamic: true
+  # The classes that geometric test applies to. On every saved screen it caught
+  # 34 overlay_badges and, wrongly, a Subscribe button and back arrow on a detail
+  # hero, a description and ss012's nav bar (2026-09-29): chrome must be compared.
+  dynamic_on_card_classes: [overlay_badge]
   # F3: a FAIL on an element the layout graph marks cut off becomes REVIEW
   # (original verdict kept in details), and B8 on a poster card is REVIEW at
   # most - a cut-off card is scroll position. false = as before.

@@ -863,9 +863,34 @@ B1 2, D1 1, B4 1) — the Phase 13.1+ fixes removed the B5/B1 ones. The 3 C2 lef
 was B1 in test3, now missed. The matcher does report client el_0020 "TV" as MISSING_IN_PRODUCTION,
 but the differ marks it PASS `ignored: dynamic content`: the TV tab [295,2013,54,37] lies wholly
 inside content_card el_0010 [32,1964,333,158], and the F1 rule (badge on a poster card = dynamic,
-`matcher._is_dynamic` via `on_card_overlap`) treats anything on a card as dynamic. On jiohotstar
-the detector boxes the tab row as content cards, so the tabs on it are ignored. ss031
-remove_element (B1 -> "caught as other") not traced yet.
+`matcher._is_dynamic` via `on_card_overlap`) treats anything on a card as dynamic. The cards are
+real posters (Peacock's Finest row) under a floating TV/Movies/Sports pill; TV's parent is the
+navigation_bar el_0017, but `_is_dynamic` fell through to the geometric test whenever the parent
+was not a card. ss031 remove_element (B1 -> "caught as other") not traced yet.
+
+**Fixes 2026-09-29** (discussed first; stage-by-stage: the lost TV tab was a compare bug, the size
+noise starts in detector/OCR box wobble and is amplified by C2 being purely relative):
+- `_is_dynamic`: a known parent wins; geometry only for parentless elements (the Trending Search
+  badges all had parent None, so F1 still holds).
+- C2 pixel floor (12.3) `comparison.size_min_px: 4`: a width/height change counts only above 4
+  client px. SIZE details gain `change_px`, `size_min_px`. 0 = old behaviour.
+- Dropped: 17.2 per-class and 17.4 per-element tolerance (at p95 ~13.6% for tabs they would soften
+  real defects and removed none of the remaining false alarms); cut-off boxes are already capped
+  by `cap_clipped_to_review`.
+
+| run (all `--cached test3_benchmark`) | caught | as other | missed | false alarms |
+|---|---|---|---|---|
+| test6 (before fixes) | 15/19 | 3 | 1 | 5 (C2 3, D1 1, B4 1) |
+| **test7 (after)** | **17/19** | 2 | **0** | **3** (C2 1, D1 1, B4 1) |
+
+Changed cases: jiohotstar remove_element missed -> caught B1; ss012 remove_element as other -> caught
+B1; ss012 blank_poster and shift_title lose the VILLAN C2. The C2 left is the Search tab (28 px,
+real detector change caused by an edit elsewhere). `--real-only`: 0 false alarms, 3 unlisted
+(unchanged). Self-compare (trending_search client): PASS, 0 findings. Full suite: 285 pass, the
+same 15 pre-existing failures (14 test_fusion, 1 test_graph); 5 new tests in
+tests/test_false_alarm_fixes.py.
+Open: ss031 remove_element "caught as other"; the D1 (jiohotstar swap_tabs Sports) and B4
+(ss012 swap_tabs More) false alarms are not traced.
 
 17.1 `measure_jitter` -> `output/jitter/test1_measure/` (1 m 29 s, 8 screens x 9 images):
 - Position (C1): diag p95 <= 0.007 in every class with n >= 5 except jiohotstar content_card
@@ -883,3 +908,44 @@ Reading: detector wobble is real only for size, and only in the tail; p95-based 
 tolerance (tab_item ~0.136) would eat most of C2's REVIEW band and turn real defects like the
 Search-tab +24% into REVIEW. And none of the 3 remaining benchmark C2 false alarms is YOLO
 wobble. Tolerance as planned in 17.2 would not remove them.
+
+**New benchmark screen 2026-09-29: `sunnxt_live_movie_detail`** (SunNXT JINN detail page, not in
+detector training data; ss031 is a training image and ss012 a validation image, ss028 = the
+AYAN detail page, so not used). `run_benchmark sunnxt_live_movie_detail` -> `test8_benchmark`
+(8 cases, ~10 min): caught 4/7, as other 3, missed 0, identity clean, 1 false alarm (E1 "Cast").
+Traced from the saved fused JSONs:
+- **Subscribe button and back arrow on the hero are never compared.** Both have no parent and lie
+  inside the hero content_card, so `_is_dynamic`'s geometric on-card test (meant for badges) marks
+  them dynamic. blank_poster painted the hero incl. Subscribe: no B1 for it. Compare-stage rule.
+- blank_poster -> B9 (card missing, REVIEW), not F3: the flat grey hero is no longer detected as a
+  card, and F3 only checks matched cards. Detector + compare.
+- relabel_title "More Like This" -> "More Li": production text is OCR-only (class None; the
+  generator's PIL font is not the app font), class mismatch -> B1 + B2 instead of E1.
+- swap_tabs Cast (88 px) <-> "Trailers and more" (325 px): the generator resizes each crop into the
+  other box (squashed/stretched text); nothing is matched, so no B4. Generator artefact + matcher
+  (swap detection needs matched items).
+- remove_element false alarm E1 "Cast": the detector gave Cast two boxes (tab_item with no text +
+  metadata_text "Cast", same place); fusion put the text on the metadata_text. Detector + fusion.
+- shift_title (86 px, 3.4% of diagonal) is C1 FAIL Minor, so the screen verdict is PASS (Minor
+  FAILs are warnings by design). Policy question, not a bug.
+
+**Human-in-the-loop direction + fixes, 2026-09-29.** Agreed: testers review the output, so the
+tool need not be perfect. Priority is no *silent* misses; wrong spec ids, REVIEW noise and
+benchmark-generator artefacts are acceptable. Done:
+- `comparison.dynamic_on_card_classes: [overlay_badge]`: `_is_dynamic`'s geometric on-card test
+  now applies to badges only. Across every saved screen it had caught 34 overlay_badges (right)
+  and a Subscribe button, back arrow, description and ss012's nav bar (wrong). Effect:
+  detail blank_poster now also reports "Subscribe ... not found in production" (B1, REVIEW ->
+  FAIL); resize_card adds F2 on the squashed back arrow (on target); ss012 unchanged.
+- Scorecard/summary `flagged_at_edit` (caught + caught as other; target = all): **19/19** on the
+  three old screens (`--cached test3_benchmark ss012 ss031 jiohotstar_test_ss` -> test9),
+  **7/7** on the detail page (`--cached test8_benchmark sunnxt_live_movie_detail` -> test10).
+  With 4 screens, `--cached test3_benchmark` alone fails (test3 lacks the new screen): name them.
+- HTML report issues/findings sorted worst first, same rank as the app's Results page.
+- `--real-only`: 0 false alarms, 3 unlisted (unchanged). Full suite 286 pass, same 15 old failures.
+- App smoke test (in-process handlers on a copied run, then deleted): accept / bug / re-check /
+  tickets CSV / undo all work; an accepted issue comes back as PASS on re-check (16 -> 14,
+  accepted 2). Accepting an issue that the current code no longer produces matches nothing
+  (stale), as designed. Browser UI itself still not clicked through.
+Next: a tester review session on the SunNXT home pair in the app, then a "save as benchmark case"
+action that turns Bug/Accept clicks into a real-pair manifest (must_flag / must_not_flag).

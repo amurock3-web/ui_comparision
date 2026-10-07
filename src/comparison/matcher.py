@@ -59,7 +59,7 @@ def _inside_share(inner, outer) -> float:
     return ix * iy / area if area > 0 else 0.0
 
 
-def _is_dynamic(el, by_id, on_card_overlap=0.75) -> bool:
+def _is_dynamic(el, by_id, on_card_overlap=0.75, on_card_classes=("overlay_badge",)) -> bool:
     """§H ignore list: anything on a poster card is live data, and anything
     fusion tagged ignored (the status bar). Lives here because both the
     matcher (anchor selection) and the differ need the same rule.
@@ -69,14 +69,19 @@ def _is_dynamic(el, by_id, on_card_overlap=0.75) -> bool:
     detector badges without a parent - on the Trending Search run all 12
     "Free" / "Most Viewed" / crown badges had parent_id None and were each
     reported as a Major B1/B2 although only the posters had changed.
-    on_card_overlap=None switches the geometric test off.
+    on_card_overlap=None switches the geometric test off, and it only ever
+    applies to on_card_classes (badges): a Subscribe button or back arrow on a
+    hero banner is chrome and must still be compared.
     """
     if el.metadata.get("ignored"):
         return True
     parent = by_id.get(el.parent_id) if el.parent_id else None
-    if parent is not None and parent.class_ in POSTER_CARDS:
-        return True
-    if on_card_overlap is None or el.class_ in POSTER_CARDS or not el.normalized_bbox:
+    if parent is not None:
+        # A known parent wins over geometry: JioHotstar's floating TV/Movies/Sports
+        # pill lies over a poster row, and its tabs (parent: navigation_bar) were
+        # ignored as "on a card", so removing the TV tab went unreported.
+        return parent.class_ in POSTER_CARDS
+    if on_card_overlap is None or el.class_ not in on_card_classes or not el.normalized_bbox:
         return False
     return any(other.class_ in POSTER_CARDS and other.normalized_bbox
                and _inside_share(el.normalized_bbox, other.normalized_bbox) >= on_card_overlap
@@ -88,6 +93,11 @@ def _on_card_overlap(full_config):
     if not full_config.get("comparison", {}).get("badges_on_cards_are_dynamic", True):
         return None
     return full_config.get("graph", {}).get("loose_containment_overlap", 0.75)
+
+
+def _on_card_classes(full_config):
+    """The classes the geometric on-card test applies to."""
+    return tuple(full_config.get("comparison", {}).get("dynamic_on_card_classes", ["overlay_badge"]))
 
 
 def _normalize_text(text):
@@ -249,6 +259,7 @@ class ElementMatcher:
         full = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
         cfg = full.get("matching", {})
         self.on_card_overlap = _on_card_overlap(full)
+        self.on_card_classes = _on_card_classes(full)
         glyph = full.get("comparison", {}).get("glyph_cleanup", {})
         self.glyph_classes = set(glyph.get("classes", ["tab_item", "button", "search_bar",
                                                         "section_title"])
@@ -423,7 +434,7 @@ class ElementMatcher:
 
         def usable(el, by_id, matched):
             return (el.id not in matched and el.class_ and el.normalized_bbox
-                    and not _is_dynamic(el, by_id, self.on_card_overlap))
+                    and not _is_dynamic(el, by_id, self.on_card_overlap, self.on_card_classes))
 
         prods = [p for p in production_doc.elements if usable(p, prod_by_id, matched_p)]
         clients = [c for c in client_doc.elements if usable(c, client_by_id, matched_c)]
@@ -459,7 +470,7 @@ class ElementMatcher:
         """A pair trustworthy enough to vote on where its container moved."""
         if p.class_ is None or p.class_ != c.class_:
             return False
-        if _is_dynamic(c, client_by_id, self.on_card_overlap):
+        if _is_dynamic(c, client_by_id, self.on_card_overlap, self.on_card_classes):
             return False
         if p.text and c.text and breakdown["text"] >= self.anchor_min_text_score:
             return True

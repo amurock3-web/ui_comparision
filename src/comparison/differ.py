@@ -42,7 +42,7 @@ from PIL import Image
 from src.comparison import (accepted, color_checks, contrast_checks, image_checks,
                             layout_checks, pixel_geometry, regions, screen_checks,
                             script_checks, text_cleanup)
-from src.comparison.matcher import (ElementMatcher, _container_of, _is_dynamic, _on_card_overlap,
+from src.comparison.matcher import (ElementMatcher, _container_of, _is_dynamic, _on_card_classes, _on_card_overlap,
                                     _normalize_text, _normalized_center)
 from src.graph.layout import SCREEN_ID
 from src.reporting.report import spec_id
@@ -122,6 +122,7 @@ class DifferenceEngine:
         full = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
         cfg = full.get("comparison", {})
         self.on_card_overlap = _on_card_overlap(full)
+        self.on_card_classes = _on_card_classes(full)
         # A3 masks the status bar, which fusion already measures - one value.
         self.status_bar_height_norm = full.get("fusion", {}).get("status_bar_height_norm", 0.04)
         self.structural_similarity_threshold = cfg.get("structural_similarity_threshold", 0.5)
@@ -135,6 +136,7 @@ class DifferenceEngine:
             "vlm_grounded_position_bands", {"pass": 0.04, "fail": 0.08, "major": 0.12}
         )
         self.size_bands = cfg.get("size_bands", {"pass": 0.05, "fail": 0.15})
+        self.size_min_px = cfg.get("size_min_px", 0)
         self.static_text_classes = set(
             cfg.get("static_text_classes", ["tab_item", "button", "section_title", "search_bar"])
         )
@@ -383,7 +385,7 @@ class DifferenceEngine:
         return kept
 
     def _is_dynamic(self, el, by_id) -> bool:
-        return _is_dynamic(el, by_id, self.on_card_overlap)  # §H rule lives in matcher.py
+        return _is_dynamic(el, by_id, self.on_card_overlap, self.on_card_classes)  # §H rule lives in matcher.py
 
     def _screen_level(self, production_image, client_image) -> list:
         """A1/A2/A3/A5 — the two frames compared before any detection. These
@@ -937,7 +939,11 @@ class DifferenceEngine:
         c_w, c_h = c.normalized_bbox[2], c.normalized_bbox[3]
         width_ratio_diff = abs(p_w - c_w) / max(p_w, c_w, 1e-9)
         height_ratio_diff = abs(p_h - c_h) / max(p_h, c_h, 1e-9)
-        size_diff = max(width_ratio_diff, height_ratio_diff)
+        # 12.3 pixel floor: a dimension counts only when it changed by more than
+        # size_min_px client pixels, so 3 px of box wobble on a 36 px label is not 8%.
+        w_px, h_px = abs(p_w - c_w) * self._screen[0], abs(p_h - c_h) * self._screen[1]
+        size_diff = max(width_ratio_diff if w_px > self.size_min_px else 0.0,
+                        height_ratio_diff if h_px > self.size_min_px else 0.0)
         if size_diff > self.size_bands["pass"]:
             fail = size_diff > self.size_bands["fail"]
             found.append(
@@ -950,6 +956,8 @@ class DifferenceEngine:
                         "client_size": [c_w, c_h],
                         "width_ratio_diff": width_ratio_diff,
                         "height_ratio_diff": height_ratio_diff,
+                        "change_px": [w_px, h_px],
+                        "size_min_px": self.size_min_px,
                     },
                     verdict=FAIL if fail else REVIEW,
                     severity=MAJOR if fail else None,

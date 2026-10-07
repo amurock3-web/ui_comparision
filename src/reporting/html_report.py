@@ -80,6 +80,13 @@ def _crop(img, bbox, pad=40, max_h=180):
     return _b64_png(crop)
 
 
+def _rank(f) -> int:
+    """Worst first, the same order as the app's Results page (static/results.js rank)."""
+    if f["verdict"] == "FAIL":
+        return {"Critical": 0, "Major": 1, "Minor": 2}.get(f.get("severity"), 3)
+    return 4 if f["verdict"] == "REVIEW" else 5
+
+
 def _pill(verdict):
     if not verdict:
         return ""
@@ -260,7 +267,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
                    f"{len(issues)} issues. Repeats of one difference are grouped here; "
                    "every finding is still listed below.</p>"
                    "<table><thead><tr><th>Test</th><th>Verdict</th><th>Issue</th></tr></thead>")
-        for i in issues:
+        for i in sorted(issues, key=_rank):
             sev = f" &middot; {esc(i['severity'])}" if i["severity"] else ""
             out.append(f"<tr><td><b>{esc(str(i['spec_id']))}</b></td>"
                        f"<td>{_pill(i['verdict'])}{sev}</td><td>{esc(i['summary'])}</td></tr>")
@@ -271,7 +278,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
         out.append("<p class='muted'>No REVIEW or FAIL findings.</p>")
     else:
         out.append("<table><thead><tr><th>Test</th><th>Verdict</th><th>What</th><th>Production &middot; Design</th></tr></thead>")
-        for f in report["findings"]:
+        for f in sorted(report["findings"], key=_rank):
             p = prod_by_id.get(f["production_id"])
             c = client_by_id.get(f["client_id"])
             crops = ""
