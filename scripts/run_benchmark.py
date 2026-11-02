@@ -4,6 +4,7 @@
     python -m scripts.run_benchmark ss031 ss012     # those screens only (no real pairs)
     python -m scripts.run_benchmark --real-only     # real pairs only: seconds, cached fused JSONs
     python -m scripts.run_benchmark --cached test3_benchmark   # re-score a saved run: seconds, no OCR
+    python -m scripts.run_benchmark --real-only --compare-to test18_benchmark   # side by side, warn only
 
 Real pairs (input/benchmark/real/<name>/): a genuine production/client
 screenshot pair with production.<ext>, client.<ext>, manifest.json and the
@@ -11,7 +12,11 @@ cached production_fused.json / client_fused.json (built once, and saved, when
 missing). The manifest lists rules {"spec_id", optional "class", "verdict",
 "text_contains"}: must_not_flag (a hit is a false alarm), must_flag (no hit is
 a miss), may_flag (tolerated); findings matching none of them are "unlisted"
-(counted, not penalised). Plus expected_verdict.
+(not false alarms, but a tester still has to look at them). Plus expected_verdict.
+
+tester_load is a real pair's grouped REVIEW/FAIL issues, all of them, against
+benchmark.review_budget_per_screen in config.yaml. Raw findings and distinct
+flagged elements are shown beside it; issues stay the budget unit.
 
 For each case: detector + OCR + fusion + layout graph (src/pipeline.py) on
 the edited "production" image, compared with the untouched client image.
@@ -43,9 +48,11 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from scripts._test_utils import next_test_number
 from src.comparison.differ import DifferenceEngine
-from src.comparison.matcher import ElementMatcher
+from src.comparison.matcher import DEFAULT_CONFIG_PATH, ElementMatcher
 from src.graph.layout import LayoutGraphBuilder
 from src.pipeline import build_document, compare_documents
 from src.reporting.html_report import CSS, VERDICT_COLORS, write_html_report
@@ -57,6 +64,7 @@ REAL_DIR = BENCH_DIR / "real"
 OUTPUT_ROOT = Path("output/benchmark")
 OUTCOME_COLORS = {"caught": "#1f9d55", "pass ok": "#1f9d55", "caught as other": "#d97706",
                   "missed": "#dc2626", "false alarm": "#dc2626"}
+FLAGGED = ("REVIEW", "FAIL")
 
 
 def near(bbox, el) -> bool:
@@ -167,6 +175,18 @@ def score_real(manifest: dict, report: dict) -> dict:
     }
 
 
+def tester_load(report: dict) -> int:
+    """REVIEW/FAIL issues, the budget unit (P4). With group_findings off a report has
+    no issues, so its findings are the nearest count."""
+    return sum(i["verdict"] in FLAGGED for i in report.get("issues", report["findings"]))
+
+
+def flagged_elements(report: dict) -> int:
+    """Distinct elements with a REVIEW/FAIL finding. A finding with no element is left out."""
+    ids = {f["client_id"] or f["production_id"] for f in report["findings"] if f["verdict"] in FLAGGED}
+    return len(ids - {None})
+
+
 def _real_side(case_dir: Path, side: str):
     """(fused doc, screenshot) for one side; the cached fused JSON skips detector + OCR."""
     image = next(p for p in sorted(case_dir.glob(f"{side}.*")) if p.suffix.lower() != ".json")
@@ -178,7 +198,7 @@ def _real_side(case_dir: Path, side: str):
     return doc, image
 
 
-def run_real(cases_dir: Path) -> list:
+def run_real(cases_dir: Path, budget: int) -> list:
     rows = []
     brief = lambda f: {k: f[k] for k in ("spec_id", "verdict", "class", "text")}
     for case_dir in sorted(p for p in REAL_DIR.glob("*") if (p / "manifest.json").is_file()):
@@ -189,15 +209,20 @@ def run_real(cases_dir: Path) -> list:
                                    f"real_{case_dir.name}")
         report = result["report"]
         s = score_real(manifest, report)
+        load = tester_load(report)
         rows.append({"case": case_dir.name, "note": manifest.get("note", ""),
                      "expected_verdict": manifest["expected_verdict"], "verdict": report["verdict"],
                      "verdict_ok": s["verdict_ok"], "findings": len(report["findings"]),
+                     "tester_load": load, "flagged_elements": flagged_elements(report),
+                     "over_budget": load > budget,
                      "violations": [brief(f) for f in s["violations"]], "misses": s["misses"],
                      "unlisted": [brief(f) for f in s["unlisted"]],
                      "report": str(Path(result["html_path"]).relative_to(cases_dir.parent))})
         print(f"\n=== real / {case_dir.name}: verdict {report['verdict']} "
               f"(expect {manifest['expected_verdict']}), {len(s['violations'])} false alarm(s), "
               f"{len(s['misses'])} miss(es), {len(s['unlisted'])} unlisted")
+        print(f"  tester load {load} issues (budget {budget}{', OVER' if load > budget else ''}), "
+              f"{len(report['findings'])} findings, {flagged_elements(report)} elements")
         for f in s["violations"]:
             print(f"  false alarm: {f['spec_id']} {f['verdict']} {f['class']} {f['text'] or ''}")
         for r in s["misses"]:
@@ -207,11 +232,16 @@ def run_real(cases_dir: Path) -> list:
     return rows
 
 
-def summarise_real(rows) -> dict:
+def summarise_real(rows, budget: int) -> dict:
+    loads = [r["tester_load"] for r in rows]
     return {"cases": len(rows), "verdict_ok": sum(r["verdict_ok"] for r in rows),
             "false_alarms": sum(len(r["violations"]) for r in rows),
             "misses": sum(len(r["misses"]) for r in rows),
-            "unlisted": sum(len(r["unlisted"]) for r in rows)}
+            "unlisted": sum(len(r["unlisted"]) for r in rows),
+            "budget": budget,
+            "max_tester_load": max(loads, default=0),
+            "mean_tester_load": round(sum(loads) / len(loads), 1) if loads else 0.0,
+            "pairs_over_budget": sum(r["over_budget"] for r in rows)}
 
 
 def real_section(summary, rows) -> list:
@@ -220,19 +250,25 @@ def real_section(summary, rows) -> list:
                         f"{f.get('text') or f.get('text_contains') or ''}".strip())
     out = ["<h2>Real pairs</h2><p class='muted'>Genuine production/client pairs "
            "(input/benchmark/real/). False alarm = a finding the manifest says must not be flagged; "
-           "miss = a must_flag rule nothing matched; unlisted findings are not penalised.</p>",
+           "miss = a must_flag rule nothing matched; unlisted findings are not false alarms, but "
+           "count toward the tester load. Tester load = REVIEW/FAIL issues per screen.</p>",
            "<div class='stats'>"
            f"<div class='stat'><b>{summary['verdict_ok']}/{summary['cases']}</b>verdicts right</div>"
            f"<div class='stat'><b>{summary['false_alarms']}</b>false alarms</div>"
            f"<div class='stat'><b>{summary['misses']}</b>misses</div>"
-           f"<div class='stat'><b>{summary['unlisted']}</b>unlisted findings</div></div>",
-           "<table><tr><th>Pair</th><th>Verdict</th><th>False alarms</th><th>Misses</th>"
+           f"<div class='stat'><b>{summary['unlisted']}</b>unlisted findings</div>"
+           f"<div class='stat'><b>{summary['max_tester_load']} / {summary['mean_tester_load']}</b>"
+           f"tester load, max / mean (budget {summary['budget']})</div>"
+           f"<div class='stat'><b>{summary['pairs_over_budget']}/{summary['cases']}</b>pairs over budget</div></div>",
+           "<table><tr><th>Pair</th><th>Verdict</th><th>Tester load</th><th>False alarms</th><th>Misses</th>"
            "<th>Unlisted</th><th>Report</th></tr>"]
     for r in rows:
+        load = (f"{r['tester_load']} issues{' <b>(over budget)</b>' if r['over_budget'] else ''}<br>"
+                f"<span class='muted'>{r['findings']} findings, {r['flagged_elements']} elements</span>")
         out.append(f"<tr><td>{esc(r['case'])}<br><span class='muted'>{esc(r['note'])}</span></td>"
                    f"<td><span class='pill' style='background:{VERDICT_COLORS[r['verdict']]}'>"
                    f"{esc(r['verdict'])}</span> expected {esc(r['expected_verdict'])}"
-                   f"{'' if r['verdict_ok'] else ' <b>(wrong)</b>'}</td>"
+                   f"{'' if r['verdict_ok'] else ' <b>(wrong)</b>'}</td><td>{load}</td>"
                    f"<td>{'<br>'.join(map(fmt, r['violations'])) or '-'}</td>"
                    f"<td>{'<br>'.join(map(fmt, r['misses'])) or '-'}</td>"
                    f"<td>{'<br>'.join(map(fmt, r['unlisted'])) or '-'}</td>"
@@ -253,6 +289,9 @@ def summarise(rows) -> dict:
         "caught_as_other": sum(r["outcome"] == "caught as other" for r in defects),
         # What a tester needs: sent to the edited spot under any test id. Target: all of them.
         "flagged_at_edit": sum(r["outcome"] in ("caught", "caught as other") for r in defects),
+        # "caught" as a rate: the right test id. Shown beside the headline; must not drop (P3).
+        "exact_id_percent": round(100 * sum(r["outcome"] == "caught" for r in defects) / len(defects))
+                            if defects else 0,
         "missed": sum(r["outcome"] == "missed" for r in defects),
         "identity_clean": sum(r["outcome"] == "pass ok" for r in rows),
         "identity_cases": sum(1 for r in rows if not r["expected"]),
@@ -281,8 +320,8 @@ def write_scorecard(summary, rows, path: Path, real_summary=None, real_rows=()):
            f"{len({r['screen'] for r in rows})} screens. Each case is a copy of a screenshot with one "
            f"known defect (scripts/make_benchmark.py), compared against the untouched screenshot.</div>",
            "<div class='stats'>"
-           f"<div class='stat'><b>{s['flagged_at_edit']}/{s['defect_cases']}</b>flagged at the edit</div>"
-           f"<div class='stat'><b>{s['caught']}/{s['defect_cases']}</b>defects caught</div>"
+           f"<div class='stat'><b>{s['flagged_at_edit']}/{s['defect_cases']}</b>flagged at edit</div>"
+           f"<div class='stat'><b>{s['caught']}/{s['defect_cases']} ({s['exact_id_percent']}%)</b>exact spec id</div>"
            f"<div class='stat'><b>{s['caught_as_other']}</b>caught as another test</div>"
            f"<div class='stat'><b>{s['missed']}</b>missed</div>"
            f"<div class='stat'><b>{s['identity_clean']}/{s['identity_cases']}</b>unchanged copies clean</div>"
@@ -330,13 +369,84 @@ def write_scorecard(summary, rows, path: Path, real_summary=None, real_rows=()):
     path.write_text("\n".join(out), encoding="utf-8")
 
 
+def load_previous(run_dir: Path) -> dict:
+    """An earlier run's results.json. A run older than tester_load gets it from the
+    report it saved; with no saved report the fields stay absent and print as n/a."""
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    for row in results.get("real", []):
+        saved = run_dir / Path(row["report"]).with_suffix(".json")
+        if "tester_load" not in row and saved.is_file():
+            report = json.loads(saved.read_text(encoding="utf-8"))
+            row["tester_load"] = tester_load(report)
+            row["flagged_elements"] = flagged_elements(report)
+    return results
+
+
+def compare_runs(name, previous, summary, rows, real_summary, real_rows) -> list:
+    """Lines setting this run beside an earlier one. Warn only: marks a drop in the
+    headline or the exact-id rate and a rise in false alarms; never fails the run."""
+    def line(label, before, now, mark=""):
+        return f"{label:<40}{str(before):<14}{str(now):<14}{'<< ' + mark if mark else ''}".rstrip()
+
+    def rate(count, total):
+        return count / total if total else 0.0
+
+    out = [f"\n{'Compared with ' + name:<40}{'previous':<14}{'this run':<14}".rstrip()]
+    p = previous.get("summary") or {}
+    if rows and not p.get("cases"):
+        out.append("previous run has no benchmark cases")
+    elif rows:
+        s, was, now = summary, p["defect_cases"], summary["defect_cases"]
+        flagged = p.get("flagged_at_edit", p["caught"] + p.get("caught_as_other", 0))
+        out.append(line("flagged at edit", f"{flagged}/{was}", f"{s['flagged_at_edit']}/{now}",
+                        "DROP" if rate(s["flagged_at_edit"], now) < rate(flagged, was) else ""))
+        out.append(line("exact spec id", f"{p['caught']}/{was} {100 * rate(p['caught'], was):.0f}%",
+                        f"{s['caught']}/{now} {100 * rate(s['caught'], now):.0f}%",
+                        "DROP" if rate(s["caught"], now) < rate(p["caught"], was) else ""))
+        out.append(line("false alarms", p["false_alarms"], s["false_alarms"],
+                        "RISE" if s["false_alarms"] > p["false_alarms"] else ""))
+        before = {(r["screen"], r["case"]): r["outcome"] for r in previous.get("cases", [])}
+        after = {(r["screen"], r["case"]): r["outcome"] for r in rows}
+        if before.keys() != after.keys():
+            out.append(f"note: different cases ({len(before)} previous, {len(after)} this run), "
+                       "so these totals are not like for like")
+        changed = [f"  {k[0]}/{k[1]}: {before[k]} -> {after[k]}" for k in after
+                   if k in before and before[k] != after[k]]
+        out += ["outcome changes:", *changed] if changed else ["outcome changes: none"]
+
+    pr = previous.get("real_summary") or {}
+    if real_rows and not pr.get("cases"):
+        out.append("previous run has no real pairs")
+    elif real_rows:
+        out.append(line("real false alarms", pr["false_alarms"], real_summary["false_alarms"],
+                        "RISE" if real_summary["false_alarms"] > pr["false_alarms"] else ""))
+        before = {r["case"]: r for r in previous.get("real", [])}
+        if before.keys() != {r["case"] for r in real_rows}:
+            out.append(f"note: different real pairs ({len(before)} previous, {len(real_rows)} this run)")
+        for r in real_rows:
+            b = before.get(r["case"])
+            if b is not None:
+                for key in ("tester_load", "findings", "flagged_elements"):
+                    out.append(line(f"{r['case']} {key}", b.get(key, "n/a"), r[key]))
+    return out
+
+
+def _option(argv, flag):
+    """(value of `flag`, argv without it)."""
+    if flag not in argv:
+        return None, argv
+    i = argv.index(flag)
+    return argv[i + 1], argv[:i] + argv[i + 2:]
+
+
 def main():
-    argv = sys.argv[1:]
-    cached = None
-    if "--cached" in argv:
-        i = argv.index("--cached")
-        cached = OUTPUT_ROOT / argv[i + 1] / "cases"
-        argv = argv[:i] + argv[i + 2:]
+    cached_name, argv = _option(sys.argv[1:], "--cached")
+    cached = OUTPUT_ROOT / cached_name / "cases" if cached_name else None
+    compare_to, argv = _option(argv, "--compare-to")
+    # Before any work: a typo here must not cost a run.
+    if compare_to and not (OUTPUT_ROOT / compare_to / "results.json").is_file():
+        raise SystemExit(f"--compare-to: {OUTPUT_ROOT / compare_to / 'results.json'} missing")
+    budget = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))["benchmark"]["review_budget_per_screen"]
     args = [a for a in argv if a != "--real-only"]
     real_only = "--real-only" in argv
     screens = [] if real_only else args or sorted(
@@ -351,23 +461,28 @@ def main():
     rows = []
     for screen in screens:
         rows += run_screen(BENCH_DIR / screen, cases_dir, cached)
-    real_rows = run_real(cases_dir) if real_only or not args else []
+    real_rows = run_real(cases_dir, budget) if real_only or not args else []
 
     summary = summarise(rows)
-    real_summary = summarise_real(real_rows)
+    real_summary = summarise_real(real_rows, budget)
     (out_dir / "results.json").write_text(json.dumps({"summary": summary, "cases": rows,
                                                       "real_summary": real_summary, "real": real_rows},
                                                      indent=2, ensure_ascii=False), encoding="utf-8")
     write_scorecard(summary, rows, out_dir / "scorecard.html", real_summary, real_rows)
     if rows:
-        print(f"\nFlagged at the edit {summary['flagged_at_edit']}/{summary['defect_cases']}; "
-              f"caught {summary['caught']}/{summary['defect_cases']}, "
+        print(f"\nFlagged at edit {summary['flagged_at_edit']}/{summary['defect_cases']}; "
+              f"exact spec id {summary['caught']}/{summary['defect_cases']} ({summary['exact_id_percent']}%), "
               f"as other {summary['caught_as_other']}, missed {summary['missed']}, "
               f"false alarms {summary['false_alarms']}")
     if real_rows:
         print(f"Real pairs: verdicts right {real_summary['verdict_ok']}/{real_summary['cases']}, "
               f"false alarms {real_summary['false_alarms']}, misses {real_summary['misses']}, "
-              f"unlisted {real_summary['unlisted']}")
+              f"unlisted {real_summary['unlisted']}, tester load max {real_summary['max_tester_load']} "
+              f"mean {real_summary['mean_tester_load']} (budget {budget}), "
+              f"over budget {real_summary['pairs_over_budget']}/{real_summary['cases']}")
+    if compare_to:
+        print("\n".join(compare_runs(compare_to, load_previous(OUTPUT_ROOT / compare_to),
+                                     summary, rows, real_summary, real_rows)))
     print(f"Scorecard: {out_dir / 'scorecard.html'}")
 
 

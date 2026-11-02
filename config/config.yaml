@@ -353,3 +353,9 @@ reporting:
   # Screen verdict when the only FAILs are Minor (spec policy P1, 2026-11-02):
   # REVIEW sends the screen to a tester. PASS = the old rule, listed as warnings only.
   minor_fail_verdict: REVIEW
+
+benchmark:
+  # Tester budget on real pairs (spec policy P4, 2026-11-02): at most this many
+  # REVIEW/FAIL issues per screen. Unlisted findings count toward it (P6).
+  # Reported by scripts.run_benchmark; it changes no verdict.
+  review_budget_per_screen: 5

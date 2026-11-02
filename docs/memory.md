@@ -1088,3 +1088,37 @@ same box). No other ss012 case, nor the client, has a `metadata_text` there. Fus
 `ignored: overlapped_by_higher_confidence` because the other box scored higher, but it still gets
 matched and its findings stand: `compare()` tests `_is_dynamic` on the client element only. This B2
 is the only thing keeping that screen at FAIL if the E1, B3 and C2 on the label were capped.
+
+**18.4 scorecard (P3, P4, P6).** Scoring and reporting only; detection, matching, checks and verdicts
+are unchanged, and existing `results.json` fields are kept.
+- P3: the first tile is "flagged at edit X/Y" (caught + caught as other), with "exact spec id X/Y (Z%)"
+  beside it. Summary gains `exact_id_percent`.
+- P4/P6: `benchmark.review_budget_per_screen: 5`. Each real pair gets `tester_load` (REVIEW/FAIL
+  issues, unlisted included), `flagged_elements` and `over_budget` (load above the budget), beside
+  the raw `findings` count. `real_summary` gains `budget`, `max_tester_load`, `mean_tester_load` and
+  `pairs_over_budget`.
+- `--compare-to <run>` prints this run beside an earlier one and never fails the run. It marks a drop
+  in flagged at edit or in the exact-id rate and a rise in false alarms, and lists only the cases whose
+  outcome changed, so swaps that net to zero show. It notes when the case sets differ. A run older than
+  `tester_load` gets it from its saved `real_<pair>_report.json`; with no saved report it prints n/a.
+
+Budget unit: issues. A tester reads and tickets per issue (`export.py` writes one row per issue), and a
+findings count rises with repeats (12 D1 findings of one colour were one issue on the home pair). Issues
+only group repeats of one check, though: trending_search has 16 findings, 15 issues and 11 elements,
+because the search bar alone is 4 issues (B8, E1, C1, C2). The element count is shown beside it for that.
+
+**New baseline, 2026-11-02** (`--cached test16_benchmark ss012 ss031 jiohotstar_test_ss` -> test22,
+`--cached test17_benchmark sunnxt_live_movie_detail` -> test23, `--real-only` -> test24, each compared
+with its source: no marks, outcome changes none). test19-21 were the same runs before a rounding fix
+in the printed percent; use test22-24.
+
+| run | screens | flagged at edit | exact spec id | false alarms | identity |
+|---|---|---|---|---|---|
+| test22 | ss012, ss031, jiohotstar_test_ss | 19/19 | 17/19 (89%) | 3 | 3/3 |
+| test23 | sunnxt_live_movie_detail | 7/7 | 4/7 (57%) | 1 | 1/1 |
+
+| run | real pair | verdict | false alarms | unlisted | misses | tester_load | findings | elements | over budget |
+|---|---|---|---|---|---|---|---|---|---|
+| test24 | trending_search | FAIL, expected REVIEW | 2 (D1 Home, C2 Search FAIL) | 3 | 0 | 15 | 16 | 11 | yes, 1 of 1 |
+
+pytest: same 15 old failures, 22 new tests pass. No fresh benchmark was run (no detector or OCR).
