@@ -13,8 +13,10 @@ matched + missing + extra, so a pair with three sub-differences counts as
 one compared element and ignored dynamic content stays out of the
 denominator entirely.
 
-Screen verdict: any Critical/Major FAIL → FAIL; else any REVIEW → REVIEW;
-else PASS (Minor FAILs are listed as warnings).
+Screen verdict: any Critical/Major FAIL → FAIL; else any REVIEW or Minor FAIL
+→ REVIEW; else PASS. Minor FAILs are still counted as warnings.
+reporting.minor_fail_verdict: PASS in config restores the old rule, where
+Minor FAILs alone left the screen at PASS.
 
 Each finding carries the test-case id it belongs to (spec_id), and the
 report lists every test case in docs/test_cases_pass_fail.md as checked or
@@ -125,11 +127,14 @@ def confidence(doc) -> dict:
     }
 
 
-def screen_verdict(differences) -> str:
+def screen_verdict(differences, minor_fail_verdict: str = "REVIEW") -> str:
     if any(d.verdict == "FAIL" and d.severity in ("Critical", "Major") for d in differences):
         return "FAIL"
     if any(d.verdict == "REVIEW" for d in differences):
         return "REVIEW"
+    # Any FAIL left is Minor (or has no severity, which must not read as PASS either).
+    if any(d.verdict == "FAIL" for d in differences):
+        return minor_fail_verdict
     return "PASS"
 
 
@@ -140,6 +145,7 @@ class ReportGenerator:
         # Issues reuse the checks' own PASS bands: two findings are "the same
         # issue" when they differ by less than a check would notice.
         self.group = full.get("reporting", {}).get("group_findings", True)
+        self.minor_fail_verdict = full.get("reporting", {}).get("minor_fail_verdict", "REVIEW")
         self.group_args = {
             "color_pass_de": cmp.get("color", {}).get("brand_bands", {}).get("pass", 3.0),
             "size_pass": cmp.get("size_bands", {}).get("pass", 0.05),
@@ -241,7 +247,7 @@ class ReportGenerator:
         report = {
             "screen": production_doc.screen_id,
             "client_screen": client_doc.screen_id,
-            "verdict": screen_verdict(differences),
+            "verdict": screen_verdict(differences, self.minor_fail_verdict),
             "warnings": sum(1 for f in findings if f["verdict"] == "FAIL" and f["severity"] == "Minor"),
             "similarity_percent": similarity,
             "summary": {**summary, **counts},

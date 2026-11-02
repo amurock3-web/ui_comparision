@@ -1,7 +1,12 @@
-# UI Comparison — Pass / Fail Test Cases (v0 draft)
+# UI Comparison — Pass / Fail Test Cases (v1)
 
 Written from the view of a QA / UI tester at a large OTT company.
-Status: **proposed defaults**. No spec was provided by the manager, so every threshold here is a starting point to confirm, not a final rule.
+Status: **v1: confirmed 2026-11-02 by Pralhadraj + Claude, manager review pending**.
+
+**Policy decisions:**
+- **P1**: a Minor FAIL makes the screen REVIEW (it used to be PASS with warnings). Critical/Major FAIL → FAIL as before.
+- **P5**: a blanked poster reported as B9 REVIEW is acceptable for now.
+- **P8**: where spec and config disagree and config is right, the spec follows config: `tab_item` is a B1 critical class.
 
 ---
 
@@ -19,7 +24,7 @@ Status: **proposed defaults**. No spec was provided by the manager, so every thr
 - **Major**: clearly visible to a normal user (missing section, wrong tab highlighted, truncated title).
 - **Minor**: only a designer would notice (2–3% shift, slightly different spacing).
 
-**Screen verdict:** any Critical or Major FAIL → screen FAILS. Only Minor fails → PASS with warnings. Any REVIEW and no FAIL → REVIEW.
+**Screen verdict:** any Critical or Major FAIL → screen FAILS. Otherwise any REVIEW or Minor FAIL → REVIEW. Only PASS results → PASS. Minor FAILs are also counted as warnings.
 
 **Normalize first:** template and production may come from different devices, so compare positions and sizes as a **% of screen width/height**, never raw pixels.
 
@@ -43,7 +48,7 @@ A Critical FAIL here (A1, A2) means the screens are not comparable element by el
 
 | ID | Check | How to measure | PASS | FAIL | Severity |
 |---|---|---|---|---|---|
-| B1 | Missing element | Template element with no match in production | All matched | Unmatched (button, tab, section title, logo, search bar) | Critical if button/nav/logo, else Major |
+| B1 | Missing element | Template element with no match in production | All matched | Unmatched (button, tab, section title, logo, search bar) | Critical if button/tab/nav/logo, else Major |
 | B2 | Extra element | Production element with no template match | None | Unexpected button/banner/popup | Major |
 | B3 | Section order | Order of `section_title` top→bottom | Same order | Rails swapped (e.g. "Trending" above "Continue Watching") | Major |
 | B4 | Tab / nav order | Order of `tab_item` left→right | Same order | Tabs reordered | Major |

@@ -949,3 +949,26 @@ benchmark-generator artefacts are acceptable. Done:
   (stale), as designed. Browser UI itself still not clicked through.
 Next: a tester review session on the SunNXT home pair in the app, then a "save as benchmark case"
 action that turns Bug/Accept clicks into a real-pair manifest (must_flag / must_not_flag).
+
+## Phase 18 — policy v1 — 2026-11-02
+
+Decisions by Pralhadraj + Claude, manager review pending. Plan: P1-P8, steps 18.1-18.4 (18.1 done below).
+`test_cases_pass_fail.md` is now v1.
+
+**18.1 spec v1 + screen verdict.**
+- P1: a Minor FAIL makes the screen REVIEW (was PASS with warnings). Critical/Major FAIL -> FAIL.
+  `reporting.minor_fail_verdict: REVIEW` in config; PASS = the old rule. The `warnings` count stays.
+  This settles the 2026-09-29 shift_title "policy question".
+- P5: blank_poster as B9 REVIEW is acceptable for now.
+- P8: spec follows config: tab_item is a B1 critical class. The C3 clause of P8 was dropped:
+  `comparison.screen.aspect_bands` (5% / 15%) drives A5 only (`differ.py`) and matches spec A5. C3
+  is not built and has no config, so nothing disagrees.
+- Saved reports keep their old verdict: old History runs say PASS until re-checked, and
+  `run_batch --resume` reuses the saved verdict for finished items.
+
+Found while reading, not changed:
+- Spec A5 says "key element sizes vs screen width"; the code compares canvas aspect ratio.
+- real/trending_search gets FAIL against expected REVIEW (test11, verdict_ok 0/1), from D1 "Home" and
+  C2 "Search", both Major and both may_flag. Not caused by P1.
+- That pair has 15 issues (test11), against the P4 budget of 5 that 18.4 will report.
+- The wobble numbers quoted in prompt 18.2 (median 2.6 px, p90 7.3 px) are not in this file.

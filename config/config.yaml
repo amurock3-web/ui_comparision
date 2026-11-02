@@ -337,3 +337,6 @@ reporting:
   # pair 12 D1 findings were one colour difference. Presentation only - findings,
   # verdict and similarity are unchanged. false = no "issues" key, HTML as before.
   group_findings: true
+  # Screen verdict when the only FAILs are Minor (spec policy P1, 2026-11-02):
+  # REVIEW sends the screen to a tester. PASS = the old rule, listed as warnings only.
+  minor_fail_verdict: REVIEW

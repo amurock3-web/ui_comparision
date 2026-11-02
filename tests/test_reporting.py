@@ -42,9 +42,33 @@ def test_screen_verdict_precedence():
     major_fail = Difference("MISSING_IN_PRODUCTION", None, "c3", {}, "FAIL", "Major")
 
     assert screen_verdict([]) == "PASS"
-    assert screen_verdict([minor_fail]) == "PASS"
+    assert screen_verdict([minor_fail]) == "REVIEW"
     assert screen_verdict([minor_fail, review]) == "REVIEW"
+    assert screen_verdict([minor_fail, major_fail]) == "FAIL"
     assert screen_verdict([review, major_fail]) == "FAIL"
+
+
+def test_screen_verdict_old_rule_is_one_switch_away():
+    minor_fail = Difference("TEXT_DIFFERENCE", "p1", "c1", {}, "FAIL", "Minor")
+    review = Difference("MISSING_IN_PRODUCTION", None, "c2", {}, "REVIEW", "Major")
+
+    assert screen_verdict([minor_fail], minor_fail_verdict="PASS") == "PASS"
+    assert screen_verdict([minor_fail, review], minor_fail_verdict="PASS") == "REVIEW"
+
+
+def test_screen_verdict_fail_without_severity_is_never_pass():
+    assert screen_verdict([Difference("TEXT_DIFFERENCE", "p1", "c1", {}, "FAIL", None)]) == "REVIEW"
+
+
+def test_report_reads_minor_fail_verdict_from_config(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("reporting:\n  minor_fail_verdict: PASS\n", encoding="utf-8")
+    diffs = [Difference("TEXT_DIFFERENCE", "p1", "c1", {}, "FAIL", "Minor")]
+
+    report = ReportGenerator(config).generate(_doc(["p1"]), _doc(["c1"], "client"), diffs)
+
+    assert report["verdict"] == "PASS"
+    assert report["warnings"] == 1
 
 
 def test_report_lists_only_non_pass_findings():
@@ -54,7 +78,7 @@ def test_report_lists_only_non_pass_findings():
     ]
     report = ReportGenerator().generate(_doc(["p1", "p2"]), _doc(["c1", "c2"], "client"), diffs)
 
-    assert report["verdict"] == "PASS"
+    assert report["verdict"] == "REVIEW"
     assert report["warnings"] == 1
     assert [f["client_id"] for f in report["findings"]] == ["c2"]
     # Both pairs matched; one of them differs, so it is matched but not clean.
