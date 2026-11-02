@@ -1038,3 +1038,53 @@ Known false alarm, not fixed yet: the ss012 relabel_title raise is not a real mo
 unchanged (26.7 vs 27.2 px); "Action" is shorter than "Action Crime", so the box shrank from 244 to 95
 px and its centre moved 75 px. C1 already reported this as REVIEW, and the rule makes it FAIL Minor.
 Any label whose length changes can do this. It sits on the edit, so it does not score as a false alarm.
+Candidate fix: measure left-aligned labels by their left edge.
+
+**18.3 low-confidence cap (P7): built, left OFF by decision.** `comparison.low_confidence_cap:
+{enabled: false, tiers: [low]}`. `DifferenceEngine._cap_low_confidence` runs last in `compare()`: a
+FAIL with a low-tier production or client element gets `details.capped` = {reason, side, confidence,
+original_verdict, applied}. Enabled, the verdict becomes REVIEW and severity stays. Disabled, only the
+record is written (`applied: false`), so every report shows what it would cap. Findings with no element
+(A1-A5, D2, GROUP_SHIFT) are never capped. B3/B4/B5 use the same rule through the one element they name.
+Cut-off elements keep their own cap, which is a string in `details.capped` and displays as before.
+With it on, the HTML report shows "REVIEW (capped: low confidence)".
+
+What "low" means depends on the source. Detector boxes: below 0.40 (`config/detector.yaml`). Elements
+whose tier comes from OCR (class None, words split out of a tab bar): below 0.60 (`src/ocr/engine.py`,
+constants, `fuse.py:625` copies the tier).
+
+Dry run (compare stage only, 30 cached cases from test12/test13 + the real pair): 7 FAILs would be
+capped, all on `relabel_title`, all detector boxes. 0 OCR-only, 0 on identity cases, 0 on the real
+pair (its D1 and C2 FAILs are high-tier), 0 off the edit.
+
+| case | finding | severity | element confidence (production) | on the edit | screen verdict if on |
+|---|---|---|---|---|---|
+| ss012 relabel_title | E1 "Action Crime" -> "Action" | Major | 0.27 | defect hit | FAIL, unchanged |
+| | B3 section order | Major | 0.27 | yes, other id | |
+| | C1 | Minor | 0.27 | yes, other id | |
+| | C2 | Major | 0.27 | yes, other id | |
+| jiohotstar relabel_title | E1 "How Much Is Too Much Drama?" -> "How Much Is T" | Major | 0.30 | defect hit | FAIL -> REVIEW |
+| | C1 | Major | 0.30 | yes, other id | |
+| | C2 | Major | 0.30 | yes, other id | |
+
+With the cap on, finding counts, issue counts and benchmark outcomes did not change on any of the 31
+cases. With it off, the only difference from having no cap setting is the `details.capped` record.
+
+**Decision (Pralhadraj, 2026-11-02): keep the cap off**, dry-run record stays. It caps 7 FAILs, all true
+defects, and prevents 0 false alarms. The edit itself lowers detector confidence (the same titles
+score 0.79-0.89 in every other case on those screens and 0.27-0.30 on the edited image), so low
+confidence here means "changed", not "unreliable". Two painted edits are the only evidence, so revisit
+only if a real pair shows a false FAIL on a low-tier element. No spec-id exemptions were added. This
+sets aside P7 as first decided; spec §I says "implemented, off by default (dry run only)".
+
+pytest: same 15 old failures, 10 new tests pass. Self-compare (trending_search client): PASS, 0
+findings. `run_benchmark` itself not re-run for 18.3. The web app's Results page reads issue severity and
+not `capped`, so with the cap on it would show "REVIEW Major" with no label; left as it is.
+
+Known false alarm, not fixed yet: ss012 relabel_title B2 Major on `metadata_text` el_0032 (0.46,
+medium, no text) is on the edit, so it does not score as a false alarm, but no extra element exists. The
+detector boxed the painted word "Action" twice: `metadata_text` 0.46 and `section_title` 0.27 (el_0034,
+same box). No other ss012 case, nor the client, has a `metadata_text` there. Fusion tags el_0034
+`ignored: overlapped_by_higher_confidence` because the other box scored higher, but it still gets
+matched and its findings stand: `compare()` tests `_is_dynamic` on the client element only. This B2
+is the only thing keeping that screen at FAIL if the E1, B3 and C2 on the label were capped.

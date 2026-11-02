@@ -131,7 +131,14 @@ Implement as **mask regions**: after matching, skip content checks inside these 
 
 ## I. Uncertainty → REVIEW (never silent PASS)
 
-- Detection or OCR confidence below threshold (e.g. <0.5)
+- Low-confidence element (`confidence_tier` low: detector below 0.40, or OCR below 0.60 where the
+  tier comes from OCR): a cap to REVIEW at most is **implemented, off by default (dry run only)**.
+  Each report records what it would cap in `details.capped` with `applied: false`; verdicts do not
+  change. A1-A5 have no element and are never capped. Off because on the cached cases it capped 7
+  FAILs, all true defects, and prevented 0 false alarms: the edit itself lowers detector confidence
+  (0.79-0.89 → 0.27-0.30), so low confidence there means "changed", not "unreliable". Revisit only
+  if a real pair shows a false FAIL on a low-tier element.
+- Unmatched element with class None or tagged `uncertain` (which includes low-tier detections): REVIEW
 - One template element matches two production elements equally well
 - Screens differ so much that <50% of elements match (probably wrong screen pair, so report "cannot compare")
 

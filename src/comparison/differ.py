@@ -165,6 +165,7 @@ class DifferenceEngine:
         self.dynamic_text_cfg = cfg.get("dynamic_text", {})
         self.accepted_cfg = cfg.get("accepted_differences", {})
         self.cap_clipped = cfg.get("cap_clipped_to_review", True)
+        self.low_confidence_cap = cfg.get("low_confidence_cap", {})
         self.glyph_cfg = cfg.get("glyph_cleanup", {})
         self._rules = None
         layout = self.layout_cfg
@@ -260,7 +261,38 @@ class DifferenceEngine:
         differences = self._drop_alignment_collateral(differences)
         differences = self._apply_match_levels(differences, client_doc.screen_id,
                                                prod_by_id, client_by_id)
-        return self._apply_acceptances(differences, client_doc.screen_id, client_by_id)
+        differences = self._apply_acceptances(differences, client_doc.screen_id, client_by_id)
+        return self._cap_low_confidence(differences, prod_by_id, client_by_id)
+
+    def _cap_low_confidence(self, differences, prod_by_id, client_by_id) -> list:
+        """P7: a FAIL on an element the model was unsure of is REVIEW at most.
+
+        Runs last, so it only touches FAILs that survived every other step. A
+        finding with no element (A1-A5, D2, GROUP_SHIFT) finds nothing here and is
+        never capped. Disabled, the record is still written with applied: false
+        and the verdict stays: that is the dry run.
+        """
+        tiers = self.low_confidence_cap.get("tiers", [])
+        enabled = bool(self.low_confidence_cap.get("enabled"))
+        for d in differences:
+            if d.verdict != FAIL:
+                continue
+            sides = (("production", prod_by_id.get(d.production_id)),
+                     ("client", client_by_id.get(d.client_id)))
+            unsure = {side: el for side, el in sides
+                      if el is not None and el.confidence_tier in tiers}
+            if not unsure:
+                continue
+            d.details = {**d.details, "capped": {
+                "reason": "low_confidence",
+                "side": next(iter(unsure)) if len(unsure) == 1 else "both",
+                "confidence": min(el.confidence for el in unsure.values()),
+                "original_verdict": FAIL,
+                "applied": enabled,
+            }}
+            if enabled:
+                d.verdict = REVIEW
+        return differences
 
     def _cap_clipped(self, differences, production_graph, client_graph) -> list:
         """A finding on a cut-off element is REVIEW at most (Phase 14b F3).

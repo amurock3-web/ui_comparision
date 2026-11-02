@@ -287,11 +287,14 @@ def write_html_report(report, production_image, client_image, production_doc, cl
                 crops += (f"<span><img src='{src}' alt='{label} crop'><br>{label}</span>" if src
                           else f"<span>(none in {label})</span> ")
             flag = _node_flag(production_graph, f["production_id"]) or _node_flag(client_graph, f["client_id"])
-            if (f.get("details") or {}).get("capped"):
+            capped = (f.get("details") or {}).get("capped")
+            if isinstance(capped, str):  # cut off; a low-confidence record is a dict
                 flag += f" Capped to REVIEW (was {f['details'].get('original_verdict')} " \
                         f"{f['details'].get('original_severity') or ''}): element is cut off."
+            # applied: false is the dry run: nothing was capped, so nothing to say.
+            low = " (capped: low confidence)" if isinstance(capped, dict) and capped.get("applied") else ""
             sev = f" &middot; {esc(f['severity'])}" if f["severity"] else ""
-            out.append(f"<tr><td><b>{esc(f['spec_id'])}</b></td><td>{_pill(f['verdict'])}{sev}</td>"
+            out.append(f"<tr><td><b>{esc(f['spec_id'])}</b></td><td>{_pill(f['verdict'])}{low}{sev}</td>"
                        f"<td>{esc(_reason(f))}<span class='muted'>{esc(flag)}</span><br>"
                        f"<span class='muted'>{esc(f['type'])} &middot; prod {esc(str(f['production_id']))} "
                        f"&middot; design {esc(str(f['client_id']))}</span></td>"

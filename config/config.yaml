@@ -151,6 +151,14 @@ comparison:
   # (original verdict kept in details), and B8 on a poster card is REVIEW at
   # most - a cut-off card is scroll position. false = as before.
   cap_clipped_to_review: true
+  # Spec policy P7 (2026-11-02): a FAIL on an element whose confidence_tier is in
+  # tiers becomes REVIEW, severity kept, with details.capped. low = detector below
+  # confidence_medium (config/detector.yaml), or OCR below CONFIDENCE_WARNING
+  # (src/ocr/engine.py) for elements whose tier comes from OCR.
+  # enabled: false = dry run: verdicts unchanged, details.capped has applied: false.
+  # Off by decision: on the cached cases it capped 7 true defects and 0 false alarms
+  # (docs/memory.md Phase 18). Revisit if a real pair shows a false FAIL on a low-tier element.
+  low_confidence_cap: {enabled: false, tiers: [low]}
   # F4 (src/comparison/text_cleanup.py): OCR reads icons as characters glued to
   # labels ("9 Languages", "... Live TV... 0"). A standalone 1-2 char token of
   # digits/symbols at either end of the label is dropped before E1 and the
