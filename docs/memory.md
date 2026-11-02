@@ -969,6 +969,42 @@ Decisions by Pralhadraj + Claude, manager review pending. Plan: P1-P8, steps 18.
 Found while reading, not changed:
 - Spec A5 says "key element sizes vs screen width"; the code compares canvas aspect ratio.
 - real/trending_search gets FAIL against expected REVIEW (test11, verdict_ok 0/1), from D1 "Home" and
-  C2 "Search", both Major and both may_flag. Not caused by P1.
+  C2 "Search", both Major. Not caused by P1; see the human review below.
 - That pair has 15 issues (test11), against the P4 budget of 5 that 18.4 will report.
 - The wobble numbers quoted in prompt 18.2 (median 2.6 px, p90 7.3 px) are not in this file.
+
+**18.1 results** (`--cached test9_benchmark ss012 ss031 jiohotstar_test_ss` -> test12,
+`--cached test10_benchmark sunnxt_live_movie_detail` -> test13, `--real-only` -> test14). test9 and
+test10 hold the same fused JSONs as test3 and test8.
+
+| screen | flagged at edit | exact spec id | identity | false alarms |
+|---|---|---|---|---|
+| ss012 | 7/7 | 7/7 | PASS | 2 |
+| ss031 | 5/5 | 3/5 | PASS | 0 |
+| jiohotstar_test_ss | 7/7 | 7/7 | PASS | 1 |
+| sunnxt_live_movie_detail | 7/7 | 4/7 | PASS | 1 |
+
+Totals unchanged: 19/19 and 7/7 flagged, 17/19 and 4/7 exact. Only two verdicts changed, ss012 and
+detail-page shift_title, PASS -> REVIEW. jiohotstar shift_title was already REVIEW; ss031 has no such
+case. Real pair unchanged: FAIL vs expected REVIEW, 0 false alarms, 3 unlisted.
+
+**Human review of real/trending_search, 2026-11-02** (Pralhadraj, compared with the live SunNXT app):
+- D1 "SUN NT Home" (dE 7.91) is not visible to the eye: the logo red is the same, production has a
+  faint glow behind the tab, and the crops differ in size (159 vs 95 px). False alarm.
+- C2 "Search" (+24% height): icon/text slightly bigger in production (real, minor), plus a red dot
+  under "Search" that exists only in the design mockup. REVIEW at most, never FAIL.
+
+Manifest updated to match (`input/` is gitignored, so this is the record in git): D1 Home moved from
+may_flag to must_not_flag; must_not_flag gains C2 tab_item Search with verdict FAIL; the may_flag C2
+tab_item rule stays; expected_verdict stays REVIEW. A finding matching both lists is a violation:
+`score_real` tests must_not_flag on its own, and may_flag only keeps a finding out of "unlisted".
+
+`--real-only` with the new manifest -> test15: 2 false alarms (D1 Home, C2 Search FAIL), 0 misses,
+3 unlisted, verdict FAIL vs expected REVIEW (verdict_ok 0/1), 15 issues (13 REVIEW, 2 FAIL), 16
+findings.
+
+Known false alarms, not fixed yet:
+- D1 on a tab_item containing logo artwork: the colour of the whole tab box includes background/glow,
+  so it differs while the logo colour does not.
+- C2 above 15% is always Major; a 24% change on a small tab icon was barely visible. Candidate rule
+  change, wait for more real pairs before changing it.
