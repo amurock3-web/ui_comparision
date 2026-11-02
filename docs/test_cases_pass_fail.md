@@ -64,7 +64,7 @@ B4 also covers two tabs that swapped labels in place (same boxes, texts exchange
 
 | ID | Check | How to measure | PASS | REVIEW | FAIL | Severity |
 |---|---|---|---|---|---|---|
-| C1 | Position shift | Center distance as % of screen diagonal | ≤1% | 1–3% | >3% | Minor → Major if >6% |
+| C1 | Position shift | Center distance as % of screen diagonal | ≤1% | 1–3% | >3%, or shift > the element's smaller side and >1% | Minor → Major if >6% |
 | C2 | Size change | Width & height ratio vs template | within ±5% | 5–15% | >15% | Minor / Major |
 | C3 | Shape / aspect distortion | Box aspect ratio vs template | within ±5% | 5–10% | >10% (stretched poster, oval avatar) | Major |
 | C4 | Wrong card type | Matched region class differs (`cast_card` vs `celebrity_card`) | Same class | Low confidence | Different class | Major |

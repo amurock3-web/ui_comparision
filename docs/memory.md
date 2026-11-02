@@ -1008,3 +1008,33 @@ Known false alarms, not fixed yet:
   so it differs while the logo colour does not.
 - C2 above 15% is always Major; a 24% change on a small tab icon was barely visible. Candidate rule
   change, wait for more real pairs before changing it.
+
+**18.2 C1 element-size rule (P2).** `comparison.position_element_rule: {enabled: true, factor: 1.0}`:
+REVIEW -> FAIL Minor when the residual move is above factor x the client element's smaller side and
+above the C1 pass band (25.8 px on 1080x2340). `layout_checks.moved_beyond_own_size` is the test;
+`differ.py` wires it. There was no pure C1 module, and `_position_verdict` stays in `differ.py`
+because GROUP_SHIFT uses it too. Details gain shift_px, element_min_side_px, rule_fired and
+verdict_rule; none are added when disabled. Not applied to FLOATING regions, VLM-grounded boxes or
+GROUP_SHIFT (a group has no single size). Dynamic elements never reach C1. Cut-off elements are still
+capped back to REVIEW.
+
+The rule can add no finding, because it needs the same pass band C1 already requires. It changes no
+screen verdict under P1, because REVIEW and a Minor FAIL both give REVIEW. With
+`minor_fail_verdict: PASS` a raise would turn a REVIEW screen into PASS.
+
+Before/after (rule off vs on, compare stage only, 30 cached cases from test12/test13 + the real pair):
+2 findings change, finding counts and screen verdicts do not.
+
+| case | finding | before -> after | shift / smaller side | screen |
+|---|---|---|---|---|
+| ss012 relabel_title | C1 section_title "Action Crime" | REVIEW -> FAIL Minor | 75.0 / 38.7 px | FAIL |
+| jiohotstar shift_title | C1 section_title "How Much Is Too Much Drama?" | REVIEW -> FAIL Minor | 72.1 / 45.4 px | REVIEW |
+
+Real pair: no change (its only C1 is search_bar, 29.6 px against a 111 px smaller side). Rule off, its
+findings are identical to the pre-change test15 report. pytest: same 15 old failures, 13 new tests pass.
+Self-compare (trending_search client): PASS. `run_benchmark` itself not re-run for 18.2.
+
+Known false alarm, not fixed yet: the ss012 relabel_title raise is not a real move. The left edge is
+unchanged (26.7 vs 27.2 px); "Action" is shorter than "Action Crime", so the box shrank from 244 to 95
+px and its centre moved 75 px. C1 already reported this as REVIEW, and the rule makes it FAIL Minor.
+Any label whose length changes can do this. It sits on the edit, so it does not score as a false alarm.

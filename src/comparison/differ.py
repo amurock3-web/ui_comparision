@@ -135,6 +135,7 @@ class DifferenceEngine:
         self.vlm_grounded_position_bands = cfg.get(
             "vlm_grounded_position_bands", {"pass": 0.04, "fail": 0.08, "major": 0.12}
         )
+        self.position_element_rule = cfg.get("position_element_rule", {})
         self.size_bands = cfg.get("size_bands", {"pass": 0.05, "fail": 0.15})
         self.size_min_px = cfg.get("size_min_px", 0)
         self.static_text_classes = set(
@@ -719,6 +720,20 @@ class DifferenceEngine:
             return REVIEW, None
         return FAIL, (MAJOR if distance > bands["major"] else MINOR)
 
+    def _element_rule(self, distance, client_el, excluded) -> tuple:
+        """C1 element-size rule (P2) -> (fired, details). The distance is the
+        residual, so a member that rode along with its panel has no move to judge."""
+        w, h = self._screen
+        diagonal = (w ** 2 + h ** 2) ** 0.5
+        shift_px = distance * diagonal
+        min_side_px = min(client_el.normalized_bbox[2] * w, client_el.normalized_bbox[3] * h)
+        fired = not excluded and layout_checks.moved_beyond_own_size(
+            shift_px, min_side_px, self.position_bands["pass"] * diagonal,
+            self.position_element_rule.get("factor", 1.0))
+        return fired, {"shift_px": round(shift_px, 1),
+                       "element_min_side_px": round(min_side_px, 1),
+                       "rule_fired": fired}
+
     def _diagonal_fraction(self, dx, dy) -> float:
         """A normalized (dx, dy) as a fraction of the screen diagonal (C1's unit)."""
         w, h = self._screen
@@ -917,18 +932,27 @@ class DifferenceEngine:
                      "fail": max(bands["fail"], floating), "major": max(bands["major"], floating)}
         if position_distance > bands["pass"]:
             verdict, severity = self._position_verdict(position_distance, bands)
+            details = {
+                "production_center": p_center,
+                "client_center": c_center,
+                "distance_of_diagonal": position_distance,
+                "group_shift": list(shift),
+                "bands": "vlm_grounded" if grounded else "default",
+            }
+            if self.position_element_rule.get("enabled"):
+                # A VLM box or a FLOATING allowance already says how far this may drift.
+                fired, rule_details = self._element_rule(position_distance, c,
+                                                         excluded=grounded or floating is not None)
+                raised = fired and verdict == REVIEW
+                if raised:
+                    verdict, severity = FAIL, MINOR
+                details.update(rule_details, verdict_rule="element" if raised else "diagonal")
             found.append(
                 Difference(
                     type="POSITION_DIFFERENCE",
                     production_id=p.id,
                     client_id=c.id,
-                    details={
-                        "production_center": p_center,
-                        "client_center": c_center,
-                        "distance_of_diagonal": position_distance,
-                        "group_shift": list(shift),
-                        "bands": "vlm_grounded" if grounded else "default",
-                    },
+                    details=details,
                     verdict=verdict,
                     severity=severity,
                 )

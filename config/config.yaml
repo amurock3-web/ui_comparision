@@ -72,6 +72,11 @@ comparison:
   # C1: center distance as a fraction of the screen diagonal.
   # <= pass → PASS, <= fail → REVIEW, > fail → FAIL (Major if > major, else Minor).
   position_bands: {pass: 0.01, fail: 0.03, major: 0.06}
+  # C1 element-size rule (spec policy P2, 2026-11-02): REVIEW -> FAIL Minor when the
+  # move is above factor x the element's smaller side and above the pass band above.
+  # Never lowers a verdict. Not applied to FLOATING regions, VLM-grounded boxes or
+  # GROUP_SHIFT. enabled: false = diagonal bands only, findings as before the rule.
+  position_element_rule: {enabled: true, factor: 1.0}
   # Looser for content_card boxes from VLM grounding (~4% drift observed
   # between runs on ss012, see memory.md).
   vlm_grounded_position_bands: {pass: 0.04, fail: 0.08, major: 0.12}

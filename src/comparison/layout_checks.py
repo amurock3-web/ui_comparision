@@ -19,6 +19,9 @@ Ordering uses difflib.SequenceMatcher opcodes, as matcher.py does for text,
 so a finding names *which* item moved rather than "the orders differ".
 
 Each function returns a list of plain dicts, empty when the two sides agree.
+
+moved_beyond_own_size is C1's element-size rule (P2), a plain test on numbers:
+it answers yes or no and, like the rest, leaves the verdict to the caller.
 """
 
 import difflib
@@ -27,6 +30,12 @@ from src.comparison.matcher import _normalize_text
 from src.graph.layout import ALIGN_AXES
 
 ORDER_RELATIONSHIPS = ("ABOVE", "LEFT_OF")
+
+
+def moved_beyond_own_size(shift_px, min_side_px, pass_band_px, factor=1.0) -> bool:
+    """C1 (P2): the move is larger than the element's smaller side. The pass band
+    keeps detector wobble on tiny icons out."""
+    return shift_px > factor * min_side_px and shift_px > pass_band_px
 
 
 def _top_left(graph, node):
