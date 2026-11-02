@@ -1121,4 +1121,4 @@ in the printed percent; use test22-24.
 |---|---|---|---|---|---|---|---|---|---|
 | test24 | trending_search | FAIL, expected REVIEW | 2 (D1 Home, C2 Search FAIL) | 3 | 0 | 15 | 16 | 11 | yes, 1 of 1 |
 
-pytest: same 15 old failures, 22 new tests pass. No fresh benchmark was run (no detector or OCR).
+pytest: same 15 old failures, 20 new tests pass. No fresh benchmark was run (no detector or OCR).
