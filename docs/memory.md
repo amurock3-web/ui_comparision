@@ -1162,3 +1162,32 @@ Causes of the noise (to fix later, nothing changed yet)
 Fixes planned, in order
 1. Side-by-side: scale both images to the same height, keep aspect ratios, warn when aspect ratios differ (threshold in config/config.yaml). Files to read first: src/reporting/visualize.py, src/reporting/html_report.py.
 2. Screen rule to ignore the video region
+
+## 2026-11-18: Handover documentation and repo hygiene
+
+Docs and repo hygiene only: no source code, thresholds or config values changed. Nothing was run
+(no pytest, pipeline, detector, OCR or benchmark).
+
+- New `docs/HANDOVER.md` (single entry point: state, architecture, setup, smoke test, usage,
+  config, tests, known issues, roadmap, decisions, troubleshooting, map, glossary, repo ownership
+  and data) and `AUTHORS.md`. README: handover link, author line, test command + the 15 known
+  failures, fuller Docs list. `docs/phases.md`: VLM model (qwen2.5vl:7b, qwen3-vl:4b rejected),
+  Phase 3 blocker resolved, Batch built, Phase 11 partly built, Phases 17-18 added.
+  `.env.example`: commented `UI_DETECTOR_PYTHON` and `OLLAMA_HOST` (the only variables the code
+  reads besides the Docker ones).
+- History: the client-derived `baselines/**/client_fused.json` files were dropped from the unpushed
+  commit ce248bb (now 960eef3, amended; it was on no remote branch) and added to `.gitignore`. The
+  files stay on disk. Nothing on origin was touched; nothing pushed.
+- The phase table and "Next immediate task" sections at the top of this file (last verified
+  2026-09-18) are superseded by HANDOVER.md §2; the dated sections below them are current.
+- Checked by reading: a missing `config/screen_rules/` folder does not break reads
+  (`regions.load_rules`, `actions.get_rules` use `is_file()`; writes create it).
+- Found, not changed: personal paths in `config/detector.yaml`, `config/class_refiner.yaml`,
+  two scripts, `docs/environment.md` and baseline `meta.json`; client-derived files already on
+  origin (`models/ui16_v1/gt_detections.json`, `docs/demo/ui_comparison_pipeline.mp4`) and a duplicate
+  video in unpushed commit d33db20 (`Claude outputs/`); `docs/graph_paper.pdf` is a third-party paper
+  (licence not checked). Recorded in HANDOVER.md §15 for a manager decision.
+- Not verified: whether the GitHub repo is public and whose account it is; what the demo video
+  shows (not played); every expected smoke-test result in HANDOVER.md §5 (taken from earlier runs
+  in this file); the Docker path end to end; the PaddleOCR model folder on Windows; the VLM path
+  with current code.

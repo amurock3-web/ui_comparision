@@ -1,5 +1,9 @@
 # UI Comparison
 
+Original author: Pralhadraj Joshi
+
+**Handover:** new to this project? Start with [`docs/HANDOVER.md`](docs/HANDOVER.md) (setup, smoke test, state, known issues, roadmap).
+
 Compares a **Production** and a **Client** screenshot of an OTT app screen and reports layout differences: missing or extra elements, position, size, order, alignment, colour, text contrast, label text and language, and broken card images. Each finding gets a PASS / REVIEW / FAIL verdict, repeats of one difference are grouped into issues, and every finding carries its test-case id from [`docs/test_cases_pass_fail.md`](docs/test_cases_pass_fail.md). Poster and tile artwork is treated as dynamic content and ignored.
 
 Per screen you can relax the comparison (match levels STRICT / LAYOUT / IGNORE_COLORS, ignore and floating regions in `config/screen_rules/`), accept a known difference once so it stops coming back, store a client design once as a baseline, and run many screenshots in a batch.
@@ -165,8 +169,10 @@ false alarm cannot quietly come back. Results go to `output/benchmark/testN_benc
 ## Tests
 
 ```bash
-pytest
+python -m pytest tests -q
 ```
+
+15 failures are known and pre-existing: 14 in `tests/test_fusion.py` (legacy `fuse()` path) and 1 in `tests/test_graph.py`.
 
 ## Configuration
 
@@ -178,7 +184,11 @@ pytest
 
 ## Docs
 
-- `docs/memory.md`: current project state (the source of truth)
+- `docs/HANDOVER.md`: start here (setup, smoke test, current state, known issues, roadmap)
+- `docs/memory.md`: project history and benchmark results (the dated sections are current; the phase table at the top is older)
+- `docs/architecture.md`, `docs/design.md`: technical design
+- `docs/phases.md`: phase plan and status
+- `docs/environment.md`, `docs/migration_ubuntu_gpu.md`: Docker / GPU setup (migration not done yet)
 - `docs/rules.md`: project constraints that don't change
 - `docs/test_cases_pass_fail.md`: the PASS / REVIEW / FAIL spec
 - `docs/archive/`: old snapshots, kept for history

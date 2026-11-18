@@ -3,7 +3,7 @@
 ## Phase 0 --- Foundation
 
 Completed: - new project folder - Python 3.11 virtual environment -
-Ollama 0.32.14 - qwen3-vl:4b - PaddlePaddle 3.2.0 - PaddleOCR - Pillow -
+Ollama 0.32.14 - qwen3-vl:4b (later rejected, see Phase 2) - PaddlePaddle 3.2.0 - PaddleOCR - Pillow -
 NetworkX - Pydantic - Ollama Python client
 
 ## Phase 1 --- OCR Foundation
@@ -27,9 +27,10 @@ engine - confidence filtering/metadata
 
 ## Phase 2 --- Local VLM
 
-Current candidate: `Qwen3-VL 4B via Ollama`
+Current model: `qwen2.5vl:7b via Ollama` (`config/config.yaml` `vlm.model`). `qwen3-vl:4b` was
+rejected: its thinking mode cannot be disabled (memory.md, VLM benchmarking).
 
-Status: installed; benchmark paused until possible GPU access.
+Status: built (`src/vlm/`), opt-in only (`src.main --vlm`, for elements fusion left uncertain).
 
 Tasks: - benchmark model - define local VLM interface - create
 structured extraction prompt - validate output - measure latency
@@ -39,10 +40,9 @@ structured extraction prompt - validate output - measure latency
 OCR supplies exact text/coordinates. VLM supplies semantic
 class/context. Fusion produces validated UI JSON.
 
-Status (2026-09-21): active blocker is OCR↔box association.
-Proposed simplification: detector-first targeted crop OCR
-(architecture.md §4a) — text is read per element crop, so association
-becomes trivial and poster artwork text is skipped.
+Status: done. Detector-first fusion (`FusionEngine.fuse_detections`) hangs OCR text on the YOLO
+boxes; the detector gives class, OCR gives text. The 2026-09-21 OCR↔box association blocker is
+resolved by it. Detector-first targeted crop OCR (architecture.md §4a) is still only proposed.
 
 ## Phase 4 --- UI Graph
 
@@ -93,6 +93,9 @@ mAP.
 
 Scale to many screens, including the old 103-screen set if desired.
 
+Status: built in Phase 15/16: `scripts/run_batch.py` (resumable) and the app's Batch page, paired
+with stored baselines.
+
 Data expansion (parked, after MVP): add screens from other OTT apps —
 20-30 screens each from 4-5 apps beats hundreds from one app. Reduce
 annotation cost with **model-assisted labeling**: current YOLO as a
@@ -121,6 +124,9 @@ Parked follow-ups:
 Possible future: - dashboard - historical comparisons - regression
 tracking - client-specific rules - GPU inference - optimized local VLM -
 detector + VLM fallback
+
+Status: partly built. Run history, new / fixed / still open tracking, per-screen rules and
+baselines exist (Phases 15/16). GPU inference is a plan (`migration_ubuntu_gpu.md`, not done).
 
 Also: new-client onboarding (architecture.md §20) — generic ontology,
 multi-app data, VLM fallback, optional 20-30 screen fine-tune per
@@ -153,3 +159,14 @@ Details and measurements in `memory.md`.
   CSV export.
 - **16**: one-click launcher and health checks, the app as a package with Compare / History /
   Results / Rules / Baselines / Batch / Help pages and a job queue.
+
+## Phases 17-18 (2026-09-28 to 2026-11-02, built)
+
+Details in `memory.md`.
+
+- **17**: cached benchmark re-scoring (`run_benchmark --cached`), detector box-wobble measurement
+  (`measure_jitter`), false-alarm fixes, C2 pixel floor, `flagged_at_edit` score. Per-class wobble
+  tolerance dropped.
+- **18**: policy v1 (spec v1, Minor FAIL → screen REVIEW, C1 element-size rule, low-confidence
+  cap built and left off, scorecard and tester budget). Pending manager review. Branch `phase-18`,
+  not on origin yet.
