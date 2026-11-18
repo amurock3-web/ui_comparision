@@ -353,6 +353,10 @@ reporting:
   # Screen verdict when the only FAILs are Minor (spec policy P1, 2026-11-02):
   # REVIEW sends the screen to a tester. PASS = the old rule, listed as warnings only.
   minor_fail_verdict: REVIEW
+  # HTML side-by-side (display only, 2026-11-06): both screenshots are drawn at one
+  # height, aspect kept. Above this relative aspect difference (|p-c|/c, A5's
+  # measure and A5's pass band) a note names both sizes above the image.
+  side_by_side_aspect_warning: 0.05
 
 benchmark:
   # Tester budget on real pairs (spec policy P4, 2026-11-02): at most this many

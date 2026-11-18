@@ -1122,3 +1122,43 @@ in the printed percent; use test22-24.
 | test24 | trending_search | FAIL, expected REVIEW | 2 (D1 Home, C2 Search FAIL) | 3 | 0 | 15 | 16 | 11 | yes, 1 of 1 |
 
 pytest: same 15 old failures, 20 new tests pass. No fresh benchmark was run (no detector or OCR).
+
+## Report side-by-side at one scale — 2026-11-06
+
+The HTML "Side by side" pasted both screenshots at native pixels, so a smaller or differently shaped
+design (e.g. 390x844 beside 1920x1080) came out as a thumbnail. `draw_comparison_result`
+(src/reporting/visualize.py) now scales both to the taller one's height, aspect kept, and draws boxes
+at bbox x scale; line width and label font stay fixed. When the aspect ratios differ by more than
+`reporting.side_by_side_aspect_warning` (0.05, A5's measure and pass band) the report shows
+"Aspect ratios differ: production WxH vs design WxH" above the image. Display only: matching, checks,
+verdicts and the finding crops are unchanged. src/main.py's PNG uses the same function and changes too.
+Not run: pytest, rematch, benchmark.
+
+Open, not fixed: the comparison is resolution-dependent in a few pixel floors counted in client pixels.
+`comparison.size_min_px: 4` (C2, differ.py) is ~1% of a 390 px-wide design but ~0.2% of a 1920 px one,
+so the same layout can get a different C2 verdict at a different design resolution. Smaller ones:
+`pixel_verify.margin_min_px: 2`, the 2 px colour-crop guard, `tight_box` `min_pixels: 16`.
+Everything else (C1, C2 ratios, pixel_check, SSIM, A5) works in normalised units.
+
+## 2026-11-06: Cricket App trial run (corrections to do later)
+
+What was tried
+- New OTT cricket app. Client design = Figma "Cricket App - WIP" (node 229-207). Production = screenshots from the senior building it.
+- No Figma access, so no proper export. The designs used were screenshots of the Figma screen.
+- Two reports run: production_IMG_0672 (home screen) and production_IMG_0689 (Match Centre with live video).
+
+Results
+- IMG_0672: FAIL, 9 of 31 matched (29%), 34 findings. Pair not comparable: design shows a "Continue Watching" rail and 9:41 status bar, production shows Latest Matches, a merch banner and a Fan Zone tab. Different content and scroll position. Design drawn as a small thumbnail.
+- IMG_0689: FAIL, 13 of 49 matched (26.5%), 43 findings. The layout is the same (Match Centre title, Info / Scorecard / Players / Stats / Highlights tabs, Match / Series / Date / Time / Toss rows). Tab order, theme, colours and labels all PASS. No real build defect found.
+
+Causes of the noise (to fix later, nothing changed yet)
+1. Live video area not ignored: betway banners, FANCODE logo, scoreboard text, LIVE badge gave about 23 of the 27 EXTRA findings.
+2. Dynamic text values compared as words: the two images show different matches (different teams, dates, toss). This caused missing/extra findings and false size and position findings. Labels (Match, Series, Date, Time, Toss) matched fine.
+3. The design image is cropped and low resolution (a screen capture, not a Figma export). The right side is cut off ("Match C", "Full C"), which caused two false B8 clipping FAILs and weaker OCR.
+4. Class mix-up: the "Info" tab is an icon in production (EXTRA, FAIL) and missing in the design.
+5. No comparability check: a very low match rate gave a headline FAIL with 34-43 findings instead of an "inconclusive" verdict.
+6. The side-by-side image is not proportional: the design is drawn as a small thumbnail next to the full-size production image. Still to confirm: whether matching depends on pixel size (finding sizes are in % of screen, so probably only a display problem).
+
+Fixes planned, in order
+1. Side-by-side: scale both images to the same height, keep aspect ratios, warn when aspect ratios differ (threshold in config/config.yaml). Files to read first: src/reporting/visualize.py, src/reporting/html_report.py.
+2. Screen rule to ignore the video region

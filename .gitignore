@@ -19,3 +19,6 @@ graphify-out/
 
 # Baseline library: client design images stay local; fused/meta JSON may be committed
 baselines/**/client.*
+
+# Client-derived OCR text and boxes: local only (handover 2026-11-18)
+baselines/**/client_fused.json

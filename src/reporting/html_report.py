@@ -205,6 +205,22 @@ def _run_meta() -> dict:
     }
 
 
+def _aspect_note(prod_img, client_img) -> str:
+    """Note above the side-by-side when the two screens differ in shape, so a
+    reader knows the panels are different widths on purpose. Same measure as
+    A5 (|p - c| / c); the threshold is reporting.side_by_side_aspect_warning.
+    Display only: the A5 verdict is decided in screen_checks, not here."""
+    cfg = yaml.safe_load((ROOT / "config" / "config.yaml").read_text(encoding="utf-8")) or {}
+    limit = (cfg.get("reporting") or {}).get("side_by_side_aspect_warning")
+    if limit is None:
+        return ""
+    (pw, ph), (cw, ch) = prod_img.size, client_img.size
+    if abs(pw / ph - cw / ch) / (cw / ch) <= limit:
+        return ""
+    return (f"<div class='note'>Aspect ratios differ: production {pw}&times;{ph} "
+            f"vs design {cw}&times;{ch}</div>")
+
+
 def _layout_counts(graph) -> dict:
     if graph is None:
         return {}
@@ -259,6 +275,7 @@ def write_html_report(report, production_image, client_image, production_doc, cl
                "<span style='color:#22cc55'>&#9632; matched</span>"
                "<span style='color:#888'>&#9632; skipped (dynamic content / ignored)</span>"
                "<span>thick coloured box = finding, labelled with its type</span></div>")
+    out.append(_aspect_note(prod_img, client_img))
     out.append(f"<img class='shot' src='{_b64_png(Image.open(side_by_side))}' alt='production and client side by side'>")
 
     issues = report.get("issues")
