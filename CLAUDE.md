@@ -20,6 +20,7 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - Redo matching/differ/report from saved fused JSONs (seconds, no detector/OCR): `python -m scripts.rematch <production_fused.json> <client_fused.json>` (same JSON twice = self-compare)
 - Known-defect benchmark: `python -m scripts.make_benchmark` then `python -m scripts.run_benchmark` (~20 min)
 - Real-pair cases only (input/benchmark/real/, cached fused JSONs, ~10 s, no OCR): `python -m scripts.run_benchmark --real-only`
+- Precision / recall / F1 + screen-level matrix from saved results (seconds): `python -m scripts.evaluate output/benchmark/<testN_benchmark> [more] [--pool]`
 - Drag-and-drop UI: `UI Compare.bat` or `python -m src.app` (http://127.0.0.1:8765, next free port if taken; runs kept in output/app/)
 - Rematch overrides: `--match-level STRICT|LAYOUT|IGNORE_COLORS`, `--rules <yaml>`
 - Baselines: `python -m scripts.add_baseline <client_image> --screen <id>` (~1 min), then

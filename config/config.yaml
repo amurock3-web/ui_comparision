@@ -363,3 +363,10 @@ benchmark:
   # REVIEW/FAIL issues per screen. Unlisted findings count toward it (P6).
   # Reported by scripts.run_benchmark; it changes no verdict.
   review_budget_per_screen: 5
+
+evaluation:
+  # scripts.evaluate (Phase 20, 2026-11-19): metrics from saved results.json only.
+  # Wilson interval level for every rate; the sample is small (~19-26 defects).
+  confidence_level: 0.95
+  # Below this many identity cases the screen-level specificity is flagged as weak evidence.
+  min_identity_cases: 5

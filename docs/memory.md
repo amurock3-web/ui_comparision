@@ -1191,3 +1191,59 @@ Docs and repo hygiene only: no source code, thresholds or config values changed.
   shows (not played); every expected smoke-test result in HANDOVER.md §5 (taken from earlier runs
   in this file); the Docker path end to end; the PaddleOCR model folder on Windows; the VLM path
   with current code.
+
+## Phase 20 — evaluation metrics — 2026-11-19
+
+20.1 + 20.2 built together on branch `phase-20`. Scoring only: detection, matching, checks and
+verdicts are unchanged, and `run_benchmark` is untouched.
+
+- `scripts/evaluate.py` reads saved `results.json` files (no detector, OCR or compare stage) and
+  writes `evaluation.json` + `evaluation.md` next to each. Several dirs print side by side.
+  `--pool` adds an "all" column, refuses a screen/case or real pair that appears in two runs (checked
+  on test16 + test22: refused on ss012/identity, nothing written), prints each `results.json` mtime,
+  and writes to `output/evaluation/testN_evaluation/`. Config: `evaluation.confidence_level: 0.95`,
+  `evaluation.min_identity_cases: 5`.
+- Definitions (also in the script's docstring and every evaluation.md): lenient TP = caught + caught
+  as other, exact TP = caught; FP = false-alarm findings incl. all findings on identity cases.
+  Precision is **case TP vs finding FP** (mixed units, labelled so); n/a with no defect cases. Wilson
+  intervals on every rate. Screen level: defect case flagged / identity PASS; the screen verdict does
+  not check where the flag is.
+
+**Results 2026-11-19** (`python -m scripts.evaluate output/benchmark/test22_benchmark
+output/benchmark/test23_benchmark output/benchmark/test24_benchmark --pool` -> pooled
+`output/evaluation/test2_evaluation`; test1_evaluation is the same run before a warning fix).
+The three results.json are from 2026-11-02 15:22, one code state (Phase 18.4).
+
+| metric (Wilson 95%) | test22 | test23 | pooled (30 cases) |
+|---|---|---|---|
+| lenient recall | 1.000 [0.832, 1.000] 19/19 | 1.000 [0.646, 1.000] 7/7 | 1.000 [0.871, 1.000] 26/26 |
+| lenient precision (case TP vs finding FP) | 0.864 [0.667, 0.953] 19/22 | 0.875 [0.529, 0.978] 7/8 | 0.867 [0.703, 0.947] 26/30 |
+| lenient F1 | 0.927 | 0.933 | 0.929 |
+| exact recall | 0.895 [0.686, 0.971] 17/19 | 0.571 [0.250, 0.842] 4/7 | 0.808 [0.621, 0.915] 21/26 |
+| exact precision | 0.850 [0.640, 0.948] 17/20 | 0.800 [0.376, 0.964] 4/5 | 0.840 [0.653, 0.936] 21/25 |
+| exact F1 | 0.872 | 0.667 | 0.824 |
+| false alarms per screen, mean / max | 0.14 / 1 | 0.12 / 1 | 0.13 / 1 |
+| screen TP / FN / TN / FP | 19 / 0 / 3 / 0 | 7 / 0 / 1 / 0 | 26 / 0 / 4 / 0 |
+| screen accuracy | 1.000 [0.851, 1.000] | 1.000 [0.676, 1.000] | 1.000 [0.886, 1.000] |
+| screen specificity | 1.000 [0.439, 1.000] 3/3 | 1.000 [0.207, 1.000] 1/1 | 1.000 [0.510, 1.000] 4/4 |
+| REVIEW rate of flagged screens | 2/19 | 1/7 | 3/26 (0.115) |
+
+Real pair (test24, trending_search): verdict exact 0/1 [0.000, 0.793], confusion REVIEW -> FAIL,
+2 false alarms, 0 misses, 3 unlisted, tester load 15 vs budget 5.
+
+Reading: recall is perfect but its lower bound is 0.87 pooled. Only 4 identity cases, so the 1.000
+specificity has a lower bound of 0.51: weak evidence. Exact-id recall on the detail page (4/7) is the
+weakest number. Per spec id (pooled): every id has 3-4 cases; false alarms by id: B4 1, C2 1, D1 1,
+E1 1. The thresholds were tuned on these screens, so all of this is optimistic until 20.5.
+
+pytest: 339 pass, 15 fail, 1 skip. The 15 failing test names are identical to a run of
+tests/test_fusion.py + tests/test_graph.py at 84656b5 (Phase 18.4) in a temporary worktree (removed
+afterwards). 7 new tests in tests/test_evaluate.py pass. No fresh benchmark, detector or OCR was run.
+
+**20.x charts, 2026-11-19.** `scripts.evaluate` also writes `evaluation.html` next to each
+evaluation.md (and in the pooled folder): Wilson intervals as dot + line per run (pooled view shows
+every run plus "all"), per-spec outcome bars (status colours, labelled) with false alarms on their own
+scale, the real-pair 3x3 verdict matrix, and the summary table. Inline SVG, no JS, no CDN, light and
+dark; palette = the dataviz default (validated light + dark, all-pairs for 3 slots). Numbers are the
+same as evaluation.md. Pooled run with the HTML: `output/evaluation/test3_evaluation/`. One new test
+(8 in tests/test_evaluate.py, all pass); the rest of the suite was not re-run for this change.

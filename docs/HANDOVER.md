@@ -356,6 +356,7 @@ python -m scripts.run_benchmark                 # ~20 min, OCR on every case (as
 python -m scripts.run_benchmark --real-only     # ~10 s, real pairs from cached fused JSONs
 python -m scripts.run_benchmark --cached <testN_benchmark> [screens...]   # seconds, re-score a saved run
 python -m scripts.run_benchmark --real-only --compare-to <testN_benchmark>
+python -m scripts.evaluate output/benchmark/<testN_benchmark> [more run dirs] [--pool]   # P/R/F1, Wilson CIs, screen matrix + evaluation.html charts (Phase 20)
 ```
 
 **The 15 known failures** (pre-existing since September; recorded unchanged after every phase in
