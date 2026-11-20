@@ -30,7 +30,7 @@ def _baseline(root, key, stale=False):
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.chdir(ROOT)  # config_hash reads config/*.yaml relative to the cwd
+    monkeypatch.chdir(ROOT)  # not needed any more (config_hash reads config/ from the project root); harmless
     monkeypatch.setattr(jobs, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(jobs, "BASELINE_ROOT", tmp_path / "baselines")
     _baseline(tmp_path / "baselines", "home/phone/default")

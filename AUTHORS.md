@@ -1,6 +1,8 @@
 # Authors
 
-Designed and built by Pralhadraj Joshi, AI Engineer Intern, Logituit, Jul-Nov 2026; project commits 2026-08-20 to Nov 2026.
+Original author: Pralhadraj Joshi, AI Engineer Intern, Logituit (Jul–Nov 2026)
+
+Designed and built by Pralhadraj Joshi; project commits 2026-08-20 to 2026-11-19, then the handover packaging (2026-11-20).
 
 Major components, from the git history of this repository:
 
@@ -20,3 +22,6 @@ Major components, from the git history of this repository:
 - Policy v1: spec v1, screen-verdict rule, C1 element-size rule, low-confidence cap, scorecard and tester budget (Phase 18, `71f9423` to `84656b5`)
 - Pipeline demo video and gap analysis (`35580e6`, `d33db20`)
 - Report side-by-side at one scale (`960eef3`)
+- Handover docs: HANDOVER.md, AUTHORS.md (`ac0ada6`)
+- Evaluation metrics and charts from saved results (Phase 20, `a817330`)
+- Handover packaging: pinned requirements, setup scripts, doctor, smoke test, bundled models, docs (handover-package branch)

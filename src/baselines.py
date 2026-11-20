@@ -22,8 +22,9 @@ import yaml
 
 from src.schema.ui_element import UIDocument
 
-ROOT = Path("baselines")
-CONFIG_FILES = (Path("config/config.yaml"), Path("config/detector.yaml"))
+_PROJECT = Path(__file__).resolve().parents[1]  # not the cwd: scripts and the app agree
+ROOT = _PROJECT / "baselines"
+CONFIG_FILES = (_PROJECT / "config" / "config.yaml", _PROJECT / "config" / "detector.yaml")
 
 
 class StaleBaselineError(RuntimeError):
@@ -69,7 +70,7 @@ def is_stale(meta: dict) -> bool:
 def _engine_info() -> dict:
     detector = yaml.safe_load(CONFIG_FILES[1].read_text(encoding="utf-8")) or {}
     config = yaml.safe_load(CONFIG_FILES[0].read_text(encoding="utf-8")) or {}
-    card = Path(detector.get("bundle", "")) / "model_card.json"
+    card = _PROJECT / detector.get("bundle", "") / "model_card.json"
     return {
         "detector": {"engine": detector.get("engine"), "bundle": detector.get("bundle"),
                      "model_card": json.loads(card.read_text(encoding="utf-8")) if card.is_file() else None},
@@ -97,7 +98,7 @@ def add_baseline(image, screen: str, device=None, language=None, fused_doc: UIDo
     meta = {
         "screen_id": screen, "device": device, "language": language,
         "created": datetime.now().isoformat(timespec="seconds"),
-        "source_file": str(image.resolve()),
+        "source_file": image.name,  # name only: a full path leaks the local user
         "image_size": [fused_doc.image_width, fused_doc.image_height],
         "config_hash": config_hash(),
         **_engine_info(),

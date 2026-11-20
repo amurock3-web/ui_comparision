@@ -71,6 +71,10 @@ def test_yolo_without_python_env_var_is_loud(tmp_path, monkeypatch):
                    "python_env_var: UI_DETECTOR_PYTHON_TEST_UNSET\n"
                    "confidence_high: 0.7\nconfidence_medium: 0.4\n")
     monkeypatch.delenv("UI_DETECTOR_PYTHON_TEST_UNSET", raising=False)
+    # A real .venv-detector (made by setup) must not satisfy the lookup here.
+    import functools
+    import src.detector.engine as engine
+    monkeypatch.setattr(engine, "detector_python", functools.partial(engine.detector_python, root=tmp_path))
     with pytest.raises(RuntimeError, match="UI_DETECTOR_PYTHON_TEST_UNSET"):
         load_detector(cfg)
 

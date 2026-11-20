@@ -11,7 +11,7 @@
 
 **Directory (host):** `~/ui_comparison_workspace`
 **Directory (container):** `/workspace`
-(Migrated from the original Windows path `C:\Users\pralhadraj.joshi\Documents\ui_comparison`)
+(Migrated from the original Windows path `<home>\Documents\ui_comparison`)
 
 This project is **separate** from the earlier SunNXT GT/audit project (103 screens, existing annotations, GT rules, XML investigations, annotation audits). That older work is being reused only as reference/evaluation/training-data material — it is not the architecture of this new project.
 

@@ -1,8 +1,11 @@
 # UI Comparison: Handover
 
+This is the handover summary for the manager. Install: [`HOW_TO_SETUP.md`](HOW_TO_SETUP.md) · Testers: [`USER_GUIDE.md`](USER_GUIDE.md) · Developers: [`CONTINUING_THE_PROJECT.md`](CONTINUING_THE_PROJECT.md)
+
 Original author: Pralhadraj Joshi
 
-Written 2026-11-18 for whoever continues this project. Start here, then use the links.
+Written 2026-11-18, updated 2026-11-20 (Phase 20, handover packaging) for whoever continues this
+project. Start here, then use the links.
 Anything marked **not verified** was written from reading files, not from running the code.
 Anything marked **TODO (ask ...)** needs information the author or the manager has.
 
@@ -54,12 +57,15 @@ Everything runs locally: no cloud OCR, no cloud VLM, no screenshot uploads ([`ru
 | Web app | `src/app/` | Compare, History, Results, Rules, Baselines, Batch, Help, job queue, health chips |
 | Known-defect + real-pair benchmark | `scripts/make_benchmark.py`, `scripts/run_benchmark.py` | scorecard HTML |
 | Policy v1 (Phase 18) | `config/config.yaml`, spec v1 | pending manager review |
+| Evaluation metrics (Phase 20) | `scripts/evaluate.py` | precision / recall / F1 with Wilson intervals, screen matrix, `evaluation.html` charts, from saved `results.json` (seconds) |
+| Handover packaging (2026-11-20) | `setup.bat`, `setup.sh`, `scripts/check_setup.py`, `scripts/smoke_test.py`, `requirements*.txt`, `models/` | one-command setup, doctor, seconds-long smoke test, bundled models with checksums ([`HOW_TO_SETUP.md`](HOW_TO_SETUP.md)) |
 
 ### Partial
 
-- **Old CLI** `src/main.py` still uses the older pairwise graph (`src/graph/build.py`) and the
-  legacy `fuse()` path. The app, `run_comparison` and the benchmark use `src/pipeline.py`. The 15
-  known test failures are in this legacy path (§8).
+- **Old CLI** `src/main.py` fuses with `fuse_detections`, like `src/pipeline.py`, but still builds
+  the older pairwise graph (`src/graph/build.py`). The app, `run_comparison` and the benchmark use
+  `src/pipeline.py`. The legacy `FusionEngine.fuse()` path is called only by `tests/test_fusion.py`.
+  The 15 known test failures are in that legacy code (§8).
 - **VLM** (`src/vlm/`, Ollama `qwen2.5vl:7b`): only with `src.main --vlm`, only for elements fusion
   left uncertain. `src/pipeline.py` does not use it. Not run since September (not verified with current code).
 - **F1 / F2** (logo / icon SSIM) are wired but idle: the detector rarely outputs `logo` or `icon` on
@@ -107,6 +113,26 @@ History, for comparison: test3 (2026-09-24, older differ) caught 13, 15 false al
 Cricket App trial (2026-11-06, not a benchmark): two pairs, both FAIL with 26-29% matched and
 34-43 findings, mostly noise (see §9).
 
+### Evaluation numbers (from `memory.md`, Phase 20, 2026-11-19)
+
+`python -m scripts.evaluate output/benchmark/test22_benchmark output/benchmark/test23_benchmark
+output/benchmark/test24_benchmark --pool`, scored from the same saved results as above. Pooled
+output with charts: `output/evaluation/test3_evaluation/` (`evaluation.html`). Wilson 95% intervals.
+
+| metric (pooled, 30 cases) | value |
+|---|---|
+| lenient recall (finding on the edited element) | 1.000 [0.871, 1.000] 26/26 |
+| lenient precision (case TP vs finding FP) | 0.867 [0.703, 0.947] 26/30 |
+| lenient F1 | 0.929 |
+| exact-id recall / precision / F1 | 0.808 (21/26) / 0.840 (21/25) / 0.824 |
+| false alarms per screen, mean / max | 0.13 / 1 |
+| screen accuracy | 1.000 [0.886, 1.000] |
+| screen specificity (identity PASS) | 1.000 [0.510, 1.000] 4/4 |
+| real pair verdict exact | 0/1 (REVIEW expected, FAIL given) |
+
+Weak spots: only 4 identity cases (specificity lower bound 0.51), exact-id recall on the detail page
+4/7, and the thresholds were tuned on these screens, so all numbers are optimistic.
+
 ## 3. Architecture in one page
 
 ```
@@ -151,50 +177,34 @@ screenshot ──┬── YOLO detector (src/detector/, separate Python) ──
 
 ### 4a. Windows (the path that is in daily use)
 
-Python 3.11 is required (`memory.md`, Dockerfile).
+The handover medium is the zip (`ui_comparison_handover_<YYYYMMDD>.zip`, one top folder
+`ui_comparison/`): code, full git history, models, `input/`, `output/` and `baselines/`. Unzip it,
+then run setup once. Full steps, Ubuntu included, and the troubleshooting table:
+[`HOW_TO_SETUP.md`](HOW_TO_SETUP.md).
 
 ```powershell
-git clone https://github.com/amurock3-web/ui_comparision.git ui_comparison
-cd ui_comparison
-# The latest work (Phase 18, this handover) is only on the local branches phase-18 and
-# handover-docs, not on origin (§15). Until they are pushed, a fresh clone gets Phase 17.3.
-git checkout handover-docs   # once pushed
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt pytest
+setup.bat                                   # Windows; Ubuntu: bash setup.sh
+.venv\Scripts\python.exe -m scripts.check_setup   # doctor; Ubuntu: .venv/bin/python -m scripts.check_setup
 ```
 
-`requirements.txt` has no `pytest`, `numpy` or `opencv-contrib-python`. The last two come in through
-`paddleocr` (gap analysis 7.3). The Dockerfile pins `pytest==8.3.4`.
-
-**Detector Python (separate venv).** ultralytics / torch must never be installed next to
-paddlepaddle. YOLO runs as a subprocess in the `UI_Detection_model_training` repo's own venv.
-
-1. Get that repo and build its venv. **TODO (ask Pralhadraj / the manager): where the
-   `UI_Detection_model_training` repo lives, who owns it, and its setup steps.** Its own docs
-   (`docs/INTERFACE.md`, named in `config/detector.yaml`) describe the bundle format (not verified).
-2. Copy the weights to `models/ui16_v1/best.pt` (22 MB, gitignored). `model_card.json`,
-   `classes_16.txt` and `gt_detections.json` are already in git.
-3. Tell this project where that Python is. `config/detector.yaml`'s `python_path` is the
-   original author's laptop path and will not exist on your machine, so set the variable:
-
-```powershell
-# for CLI scripts in this shell (scripts load no .env file):
-$env:UI_DETECTOR_PYTHON = "C:\path\to\UI_Detection_model_training\.venv\Scripts\python.exe"
-```
-
-and, for the web-app launchers, put the same in a `.env` file in the project root (gitignored):
-
-```
-UI_DETECTOR_PYTHON=C:\path\to\UI_Detection_model_training\.venv\Scripts\python.exe
-```
+- Python 3.11 is required. Setup needs internet the first time (~10-20 min); after that everything
+  runs offline (except the optional Ollama VLM). It is safe to re-run.
+- Setup creates two venvs at the project root: `.venv` (`requirements.txt`, paddle + app) and
+  `.venv-detector` (`requirements-detector.txt`, ultralytics + torch). They must never be merged:
+  ultralytics / torch next to paddlepaddle breaks it.
+- The detector Python is found automatically: `UI_DETECTOR_PYTHON` if set, else
+  `.venv-detector`, else `python_path` in `config/detector.yaml` (blank). No `.env` or manual path
+  is needed.
+- The YOLO weights (`models/ui16_v1/best.pt`) and the PaddleOCR models
+  (`models/paddlex/official_models/PP-OCRv6_medium_{det,rec}`) are in the zip. `src/ocr/engine.py`
+  points PaddleX at `models/paddlex`, so OCR never downloads. The doctor checks them against
+  `models/SHA256SUMS.txt`.
+- The `UI_Detection_model_training` repo is not needed to run the tool. It is only needed to retrain
+  the detector or to run the class-refiner scripts (`config/class_refiner.yaml` expects it at
+  `../UI_Detection_model_training`).
 
 No model? Set `engine: gt_stub` in `config/detector.yaml` to replay the hand labels. It only knows
 the 103 labelled SunNXT screenshots, by file name.
-
-**PaddleOCR models** download on first OCR run (internet needed once). In Docker they go to
-`~/.paddlex` under `HOME=/cache` (Dockerfile comment). On Windows the location is
-`%USERPROFILE%\.paddlex`: **not verified**.
 
 **Microsoft Edge** (optional) prints the PDF report. Without it, open the HTML and use the
 browser's Save as PDF.
@@ -214,8 +224,9 @@ docker compose up -d --build
 docker compose exec app bash
 ```
 
-The code is bind-mounted, `input/` is mounted read-only, `output/` read-write, PaddleOCR caches in
-the `app_cache` volume, Ollama runs in its own container. What does not work yet (from
+The code is bind-mounted, `input/` is mounted read-only, `output/` read-write, `HOME` caches live in
+the `app_cache` volume (OCR uses the bundled `models/paddlex` from the mounted code; not verified in
+the container), Ollama runs in its own container. What does not work yet (from
 [`migration_ubuntu_gpu.md`](migration_ubuntu_gpu.md)): no detector Python in the image; the app
 binds 127.0.0.1 inside the container and no port is published (`src.app` has no `--host` flag yet);
 no Edge for the PDF; `make_benchmark` writes into the read-only `input/`; GTX 1070 needs torch from
@@ -224,30 +235,44 @@ the cu126 index; 8 GB VRAM must be shared by PaddleOCR, YOLO and Ollama. Backgro
 
 ### 4c. What is not in git, and where to get it
 
-| Item | Needed for | Where it is today | Owner |
+| Item | Needed for | Where it is | Owner |
 |---|---|---|---|
-| `models/ui16_v1/best.pt` | real detector | author's laptop; produced by `UI_Detection_model_training` | **TODO (ask Pralhadraj / manager)** |
-| `UI_Detection_model_training` repo + its venv | detector Python | author's laptop (`config/detector.yaml` path) | **TODO (ask Pralhadraj / manager)** |
-| `input/` screenshots (`production/`, `client/`) | running real pairs | author's laptop, gitignored | **TODO (ask Pralhadraj / manager)** |
-| `input/benchmark/` (defect cases, `real/trending_search/` with manifest and cached fused JSONs) | benchmark, smoke test | author's laptop, gitignored | **TODO (ask Pralhadraj / manager)** |
-| `output/benchmark/test16_benchmark`, `test17_benchmark` | `--cached` re-scoring in seconds | author's laptop, gitignored | **TODO (ask Pralhadraj / manager)** |
-| `output/app/` runs | History, Re-check of old runs | author's laptop, gitignored | **TODO (ask Pralhadraj / manager)** |
-| `baselines/**/client.*` images and `client_fused.json` | stored client designs | author's laptop, gitignored (meta.json is in git) | **TODO (ask Pralhadraj / manager)** |
-| PaddleOCR models | OCR | downloaded on first run | PaddlePaddle (public) |
-| Ollama + `qwen2.5vl:7b` | `--vlm` only | `ollama pull` | Ollama library (public) |
-| `.env` | launchers, Docker | create from `.env.example` | you |
+| `models/ui16_v1/best.pt` | real detector | in the zip; produced by `UI_Detection_model_training` | company (trained by the author) |
+| `models/paddlex/` (PP-OCRv6 det + rec) | OCR | in the zip | PaddlePaddle (public models) |
+| `.venv`, `.venv-detector` | running anything | not in the zip; built by setup (a copied venv does not work on another computer) | you |
+| `UI_Detection_model_training` repo | retraining, refiner scripts only (not needed to run) | separate repo, expected at `../UI_Detection_model_training` | **TODO (ask Pralhadraj / manager): where it lives and who owns it** |
+| `input/` screenshots (`production/`, `client/`) | running real pairs | in the zip (gitignored) | client data, internal only |
+| `input/benchmark/` (defect cases, `real/trending_search/` with manifest and cached fused JSONs) | benchmark, smoke test | in the zip (gitignored) | client data, internal only |
+| `output/` (benchmark runs incl. `test16_benchmark`, `test17_benchmark`; `output/app/` runs) | `--cached` re-scoring, History, Re-check | in the zip (gitignored); [`../output/INDEX.md`](../output/INDEX.md) says which runs matter | client data, internal only |
+| `baselines/**/client.*` images and `client_fused.json` | stored client designs | in the zip (gitignored; `meta.json` is in git) | client data, internal only |
+| Ollama + `qwen2.5vl:7b` (~6 GB) | `--vlm` only | not in the zip; `ollama pull qwen2.5vl:7b` | Ollama library (public) |
+| `.env` | Docker only | create from `.env.example` | you |
 
-The migration doc suggests copying `models/ui16_v1/`, `input/`, `output/app/` and
-`output/benchmark/` on a USB drive. That fits rules.md §2 (screenshots never go to GitHub).
+The zip holds SunNXT / JioHotstar client screenshots and reports: internal only, never share it
+outside the company or upload it anywhere (rules.md §2).
 
 ## 5. First 30 minutes: smoke test (to run by the new owner)
 
-None of these were run while writing this document. Expected results come from `memory.md`.
+Run these two first (seconds each, no detector or OCR). Both passed on the author's laptop on
+2026-11-20 (`memory.md`).
+
+```powershell
+.venv\Scripts\python.exe -m scripts.check_setup   # doctor: one PASS / FIX / INFO line per check, exit 0 = ready
+.venv\Scripts\python.exe -m scripts.smoke_test    # prints SMOKE TEST: PASS; output in output/smoke/testN_smoke/
+```
+
+Ubuntu: `.venv/bin/python` instead of `.venv\Scripts\python.exe`. Fix every FIX line the doctor
+prints before going on. The smoke test runs the real pair `trending_search` from cached fused JSONs
+(expected FAIL with 16 findings; the manifest expects REVIEW, a known gap, shown as INFO) and a
+client self-compare (expected PASS, 0 findings).
+
+The longer manual steps below were not run while writing this document; expected results come from
+`memory.md`. Commands assume the `.venv` Python.
 
 | # | Command | Expected | Needs |
 |---|---|---|---|
 | 1 | `python -m src.health` | every required check OK; Edge may be "not found" (amber, optional) | §4a done |
-| 2 | `"UI Compare.bat"` (or `python -m src.app`) | browser opens http://127.0.0.1:8765 (next free port up to 8775); health chips green; Compare button enabled | §4a + `.env` |
+| 2 | `"UI Compare.bat"` (or `python -m src.app`) | browser opens http://127.0.0.1:8765 (next free port up to 8775); health chips green; Compare button enabled | §4a done |
 | 3 | `python -m scripts.rematch input/benchmark/real/trending_search/client_fused.json input/benchmark/real/trending_search/client_fused.json` | self-compare: PASS, 100% matched, 0 findings; output in `output/rematch/testN_*` | `input/benchmark/` |
 | 4 | `python -m scripts.run_benchmark --real-only` | ~10 s; trending_search FAIL vs expected REVIEW, 2 false alarms, 0 misses, 3 unlisted, tester load 15 (as test24) | `input/benchmark/real/` |
 | 5 | `python -m pytest tests -q` | the 15 known failures only (14 in `tests/test_fusion.py`, 1 in `tests/test_graph.py`); the real-YOLO test in `test_detector.py` is skipped unless `UI_DETECTOR_PYTHON` is set and `best.pt` exists | venv + pytest |
@@ -317,11 +342,11 @@ the effect in seconds (`scripts.rematch`, `run_benchmark --real-only`, `run_benc
 | File | What it holds |
 |---|---|
 | `config/config.yaml` | every threshold and on/off switch: `ocr`, `matching`, `comparison` (all checks), `vlm`, `fusion`, `graph`, `reporting`, `benchmark` |
-| `config/detector.yaml` | engine (`yolo` / `gt_stub`), bundle, detector Python (`python_env_var`, fallback `python_path`), confidence tiers (high 0.70, medium 0.40) |
+| `config/detector.yaml` | engine (`yolo` / `gt_stub`), bundle, detector Python (`python_env_var`, then `.venv-detector`, then `python_path`, blank), confidence tiers (high 0.70, medium 0.40) |
 | `config/classes.json` | the 16-class taxonomy (`v2-16class-2026-09-02`) |
 | `config/screen_rules/<client screen id>.yaml` | per-screen match level, regions, dynamic-text patterns. Empty today and not in git (git does not track empty folders). Missing folder or file is fine: `regions.load_rules` and `actions.get_rules` check `is_file()` and fall back to defaults, and writes create the folder (verified by reading `src/comparison/regions.py` and `src/app/actions.py`) |
 | `config/ticket_export.yaml` | ticket CSV columns; still defaults, needs the team's real sheet |
-| `config/class_refiner.yaml` | the refiner experiment only; holds the author's local paths |
+| `config/class_refiner.yaml` | the refiner experiment only; expects the training repo at `../UI_Detection_model_training` |
 
 Thresholds that matter most (`config/config.yaml`):
 
@@ -350,6 +375,8 @@ change (comparison thresholds do not make them stale).
 ## 8. Tests and benchmarks
 
 ```powershell
+python -m scripts.check_setup                   # doctor: setup, models, configs (seconds)
+python -m scripts.smoke_test                    # real pair + self-compare from cached JSONs (seconds)
 python -m pytest tests -q                       # unit tests
 python -m scripts.make_benchmark                # writes defect copies into input/benchmark/<screen>/
 python -m scripts.run_benchmark                 # ~20 min, OCR on every case (ask before running)
@@ -359,14 +386,37 @@ python -m scripts.run_benchmark --real-only --compare-to <testN_benchmark>
 python -m scripts.evaluate output/benchmark/<testN_benchmark> [more run dirs] [--pool]   # P/R/F1, Wilson CIs, screen matrix + evaluation.html charts (Phase 20)
 ```
 
-**The 15 known failures** (pre-existing since September; recorded unchanged after every phase in
-`memory.md`): 14 in `tests/test_fusion.py` (tests of the legacy `fuse()` path, which needs a
-`grounded_cards` argument they do not pass) and 1 in `tests/test_graph.py` (the older
-`src/graph/build.py`). The last full count in `memory.md` is 286 pass + 15 fail (2026-09-29); Phases
-18.2-18.4 added 43 tests, all passing, but no new total was recorded. Gap analysis 7.1 recommends deleting
-the legacy `fuse()` / `build.py` / `main.py` path instead of fixing these tests.
+### Known failing tests
 
-**What the scores mean** (`output/benchmark/testN_benchmark/scorecard.html`, `results.json`):
+These 15 tests failed before the handover packaging and still fail the same way. The names were diffed against
+commit `a817330` (Phase 20), so the packaging did not break them. Full run on 2026-11-20: 343 passed,
+15 failed, 1 skipped.
+
+| Test | Why it fails |
+|---|---|
+| `tests/test_fusion.py::test_text_matchable_class_grounded_by_ocr_bbox` | Legacy `FusionEngine.fuse()`: the test does not pass the required `grounded_cards` argument (TypeError). |
+| `tests/test_fusion.py::test_ungrounded_vlm_classification_kept_with_no_bbox` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_unmatched_ocr_kept_as_orphan_evidence` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_content_card_grid_inference` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_badge_promoted_via_keyword_and_card_containment` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_badge_keyword_outside_low_confidence_not_promoted` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_duplicate_text_disambiguated_by_approximate_location` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_som_id_match_resolves_collision_text_similarity_gets_wrong` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_som_id_unknown_falls_back_to_text_similarity` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_zone_only_fallback_grounds_element_with_no_text` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_zone_only_fallback_discounts_confidence_vs_text_match` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_section_titles_with_no_text_still_split_cards_into_rows` | Same: legacy `fuse()` called without `grounded_cards`. |
+| `tests/test_fusion.py::test_detections_take_ocr_text_and_cards_keep_children` | `fuse_detections()`: the test expects the tab to get the text "TV Shows", but the tab now has no text. The expectation is older than later fusion changes; not triaged yet. |
+| `tests/test_fusion.py::test_low_tier_card_does_not_swallow_tab_text` | `fuse_detections()`: the test expects the tab text "Movies Live TV More Soon", but the tab now has no text. Same cause as the test above; not triaged yet. |
+| `tests/test_graph.py::test_relations_not_generated_for_every_possible_pair` | The older `src/graph/build.py` (still used by `src/main.py`) gives one pair 4 relationship types, and the test allows at most 3. |
+
+Gap analysis 7.1 recommends deleting the legacy `fuse()`, `build.py` and `main.py` path instead of fixing
+these 13 legacy tests. Look at the 2 `fuse_detections()` tests before touching fusion, because they test the
+live path.
+
+### What the scores mean
+
+Scores come from `output/benchmark/testN_benchmark/scorecard.html` and `results.json`.
 
 - *flagged at edit X/Y*: synthetic cases where some finding landed on the edited element
   (caught + caught as other). The headline: no silent miss.
@@ -459,7 +509,7 @@ From `memory.md`, `phases.md`, the Cricket trial notes and [`gap_analysis.pdf`](
 | 11 | Detector data from other apps + mockups, retrain; class refiner only if results show class errors | trained on SunNXT only; button misses are missed boxes | `UI_Detection_model_training` repo, `models/`, `config/class_refiner.yaml` |
 | 12 | Normalise the pixel floors (§9) | same layout, different verdict per resolution | `config/config.yaml`, `src/comparison/differ.py`, `pixel_geometry.py` |
 | 13 | Ubuntu GPU migration | OCR 45 s → ~2 s per screen makes tuning practical | [`migration_ubuntu_gpu.md`](migration_ubuntu_gpu.md), `Dockerfile`, `docker-compose.yml`, `src/app/__main__.py` |
-| 14 | Housekeeping: retire legacy `fuse()` / `build.py` / `main.py` path (the 15 failures), pin numpy/opencv, replace the author's paths in `config/detector.yaml` and `config/class_refiner.yaml`, merge `phase-18` to `main` | a clean start for the next owner | `src/fusion/fuse.py`, `src/graph/build.py`, `src/main.py`, `requirements.txt`, `config/` |
+| 14 | Housekeeping: retire legacy `fuse()` / `build.py` / `main.py` path (the 15 failures), merge the local branches to `main` (§15). (Pinning requirements and removing the author's config paths were done in the handover packaging.) | a clean start for the next owner | `src/fusion/fuse.py`, `src/graph/build.py`, `src/main.py` |
 | 15 | Manager review of policy v1 | Phase 18 rules are not confirmed | [`test_cases_pass_fail.md`](test_cases_pass_fail.md), `config/config.yaml` |
 
 ## 11. Decisions and why
@@ -490,10 +540,14 @@ From `memory.md`, `phases.md`, the Cricket trial notes and [`gap_analysis.pdf`](
 
 ## 12. Troubleshooting
 
+Setup and install problems (Python version, venvs, missing models, launcher says "run setup first",
+OpenCV libraries on Ubuntu): see the troubleshooting table in [`HOW_TO_SETUP.md`](HOW_TO_SETUP.md).
+`python -m scripts.check_setup` names most of them with a FIX line. The rest:
+
 | Symptom | Cause | Fix |
 |---|---|---|
-| Detector chip red / "detector Python not found" | `UI_DETECTOR_PYTHON` unset and `python_path` in `config/detector.yaml` is the author's path | set the variable in the shell, or `UI_DETECTOR_PYTHON=...` in `.env` for the launchers (§4a) |
-| `ImportError` / crashes after installing ultralytics | ultralytics/torch installed in this venv next to paddle | uninstall them here; they belong only in the detector venv |
+| Detector chip red / "detector Python not found" | no `.venv-detector` (setup not run or failed) and `UI_DETECTOR_PYTHON` unset | run `setup.bat` / `bash setup.sh` again, or set `UI_DETECTOR_PYTHON` to a Python that has ultralytics |
+| `ImportError` / crashes after installing ultralytics | ultralytics/torch installed in `.venv` next to paddle | uninstall them from `.venv`; they belong only in `.venv-detector` (the doctor flags this) |
 | `UnicodeEncodeError` on print (Tamil / CJK / ₹) | Windows console is cp1252 | run scripts that import `scripts/_test_utils.py` (forces UTF-8); keep that import in new scripts |
 | App starts on 8766 or later | port 8765 taken | it uses the next free port up to 8775; or `python -m src.app --port 8800` |
 | PDF download missing / Edge chip amber | Microsoft Edge not installed | open the HTML report and use the browser's Save as PDF |
@@ -525,14 +579,18 @@ src/app/           server.py (routes), jobs.py (queue, runner, PDF), library.py 
                    runs.py, actions.py (Results/Rules API), static/ (vanilla JS, no CDN)
 scripts/           run_* (one stage), rematch, run_comparison, add_baseline, run_batch, accept_finding,
                    export_tickets, make_benchmark, run_benchmark, measure_jitter, refiner scripts,
+                   evaluate, check_setup (doctor), smoke_test, make_release (handover zip),
                    _test_utils.py (UTF-8), make_shortcut.ps1
 tests/             pytest, one file per module
-models/ui16_v1/    model_card.json, classes_16.txt, gt_detections.json (best.pt not in git)
+models/ui16_v1/    model_card.json, classes_16.txt, gt_detections.json (best.pt not in git, in the zip)
+models/paddlex/    PaddleOCR PP-OCRv6 det + rec (not in git, in the zip); models/SHA256SUMS.txt checksums
 baselines/         <screen>/<device>/<language>/ meta.json (image + client_fused.json local only), _archive/
-docs/              memory.md (history + benchmark results), test_cases_pass_fail.md (spec), rules.md,
+docs/              HANDOVER.md (this), HOW_TO_SETUP.md, USER_GUIDE.md, CONTINUING_THE_PROJECT.md, CHANGELOG.md,
+                   memory.md (history + benchmark results), test_cases_pass_fail.md (spec), rules.md,
                    architecture.md, design.md, phases.md, environment.md, migration_ubuntu_gpu.md,
                    gap_analysis.pdf, graph_paper.pdf, phase*_prompts.md (build prompts), demo/, archive/
-input/, output/    local only, gitignored (screenshots, runs, benchmark results)
+input/, output/    gitignored, in the zip (screenshots, runs, benchmark results); output/INDEX.md: which runs matter
+setup.bat, setup.sh   one-time setup (.venv + .venv-detector);  requirements.txt, requirements-detector.txt
 UI Compare.bat, start.sh   app launchers;  Dockerfile, docker-compose.yml   GPU sandbox
 ```
 
@@ -564,18 +622,21 @@ UI Compare.bat, start.sh   app launchers;  Dockerfile, docker-compose.yml   GPU 
   account `amurock3-web` is, has **not been verified**.
   **TODO (manager, Dhanya): move the code to a company-owned private repository and remove or
   archive this one.**
-- **Branches**: `origin/main` stops at Phase 17.3 (`35580e6`, 2026-10-07). Phase 18, the side-by-side
-  scale change and this handover are only local (`phase-18`, then `handover-docs`). Nothing has been
-  pushed. Leftover local branches (`worktree-agent-*`, `claude/remote-control-*`,
+- **Handover medium**: the zip (full git history included), not GitHub.
+- **Branches**: `origin/main` stops at Phase 17.3 (`35580e6`, 2026-10-07). Everything after is only
+  local, in this order: `phase-18` (Phase 18, side-by-side scale), `handover-docs` (this document),
+  `phase-20` (evaluation metrics), `handover-package` (setup, doctor, smoke test, bundled models).
+  Nothing has been pushed. Leftover local branches (`worktree-agent-*`, `claude/remote-control-*`,
   `explain_project_structure`, `detector-integration`) are old agent and feature branches; they were not deleted.
 - **Client-derived files that need a data-sharing decision** (TODO, manager):
   - `models/ui16_v1/gt_detections.json`: hand labels of the 103 SunNXT screens. **Already on origin.**
   - `docs/demo/ui_comparison_pipeline.mp4`: pipeline walkthrough video, **already on origin**
     (`35580e6`). Not played for this check; it is a pipeline demo, so it likely shows SunNXT
-    screenshots (not verified). A byte-identical copy `Claude outputs/ui_comparison_pipeline.mp4`
-    is in local commit `d33db20` (not pushed).
+    screenshots (not verified). `Claude outputs/ui_comparison_pipeline.mp4` is a byte-identical
+    duplicate of it, in local commit `d33db20` (not pushed); it is kept in the zip at the author's
+    request.
   - `baselines/*/meta.json` (in git): settings only (screen id, size, config hash, model card) plus
-    the author's local upload path; no OCR text. The baseline images and `client_fused.json` (OCR
+    the upload's file name (no longer the full local path); no OCR text. The baseline images and `client_fused.json` (OCR
     text of client designs, incl. the Cricket WIP design) are local only and gitignored.
   - `input/` (SunNXT and JioHotstar screenshots) and `output/` (all runs, incl. the Cricket trial
     uploads in `output/app/`): local only, never in git.
@@ -584,7 +645,8 @@ UI Compare.bat, start.sh   app launchers;  Dockerfile, docker-compose.yml   GPU 
   - `docs/graph_paper.pdf`: a third-party research paper (Moradi et al., Tricentis AI Research Lab).
     No client data. Its redistribution licence is **not verified**; a citation/link would be safer
     than the PDF in a public repo.
-- **Personal paths in git**: `config/detector.yaml` (`python_path`), `config/class_refiner.yaml`,
-  `scripts/calibrate_text_tolerance.py`, the `scripts/run_detector.py` docstring,
-  `docs/environment.md`, `baselines/*/meta.json`. Not secrets, but they will not work on another
-  machine. No passwords, API keys or tokens were found (searched 2026-11-18).
+- **Personal paths in git**: fixed in the handover packaging: `config/detector.yaml` `python_path`
+  is now blank, `config/class_refiner.yaml` uses the relative `../UI_Detection_model_training`,
+  `scripts/calibrate_text_tolerance.py` takes `--metadata <folder>`, `baselines/*/meta.json` stores
+  the file name only, the `scripts/run_detector.py` docstring uses a placeholder, and the docs use
+  project-relative paths or placeholders. Earlier commits keep the old paths. Not secrets. No passwords, API keys or tokens were found (searched 2026-11-18).

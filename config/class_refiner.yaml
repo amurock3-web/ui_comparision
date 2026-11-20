@@ -6,7 +6,9 @@
 paths:
   # Label Studio export, renamed to ss001..ss103 (22-class YOLO labels).
   # Lives in the detector repo; data/labelstudio_export/ does not exist here.
-  export_dir: C:/Users/pralhadraj.joshi/UI_Detection_model_training/data/renamed
+  # Relative paths resolve against the cwd (run `python -m scripts.x` from the
+  # project root), so ../UI_Detection_model_training is a sibling checkout.
+  export_dir: ../UI_Detection_model_training/data/renamed
   images_subdir: images
   labels_subdir: labels
   classes_file: classes_22.txt
@@ -14,10 +16,10 @@ paths:
   # remap (keys: image stem -> {1-based label line: 16-class name}). YOLO
   # ui16_v1 was trained and validated on the corrected labels, so the
   # YOLO-vs-refiner comparison is only fair if truth includes them.
-  corrections_file: C:/Users/pralhadraj.joshi/UI_Detection_model_training/config/label_corrections.yaml
+  corrections_file: ../UI_Detection_model_training/config/label_corrections.yaml
   apply_corrections: true
   # YOLO ui16_v1 validation split (20 images, seed 42, model_card.json).
-  yolo_val_images_dir: C:/Users/pralhadraj.joshi/UI_Detection_model_training/ds/images/val
+  yolo_val_images_dir: ../UI_Detection_model_training/ds/images/val
   # Detector settings + weights bundle (engine must be yolo for the comparison).
   detector_config: config/detector.yaml
   output_dir: output/class_refiner

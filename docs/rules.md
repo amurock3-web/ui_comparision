@@ -7,7 +7,7 @@ Old annotations, GT rules and XML may later be used as reference/evaluation data
 
 2. Data privacy --- CRITICAL
 
-Production and Client screenshots must remain local.
+Production and client screenshots must remain local.
 
 Do not use: - cloud VLM inference - cloud OCR - screenshot uploads - third-party image-processing APIs
 
@@ -143,7 +143,7 @@ calibrated probabilities, no text generation) was evaluated as a class
 classifier for the UI ontology. **Not adopted**, because:
 
 1. It is a cloud API → violates §2. Sending only OCR text + bbox JSON
-   still sends data derived from Production/Client screenshots off the
+   still sends data derived from production/client screenshots off the
    machine.
 2. It is text/JSON-only (no image input). The hardest class splits
    (e.g. `cast_card` vs `celebrity_card`) are visual.

@@ -1,12 +1,21 @@
-# Direct dependencies only; pip resolves the rest.
-# The YOLO detector (ultralytics/torch) is deliberately NOT here: it runs in a
-# separate Python (config/detector.yaml) so it never shares an env with paddle.
+# Main env (.venv), Python 3.11. Direct dependencies only; pip resolves the rest.
+# The YOLO detector (ultralytics/torch) lives in requirements-detector.txt and its
+# own venv (.venv-detector). Never install it here: it must not share an env with paddle.
 # Docker swaps paddlepaddle for paddlepaddle-gpu (see Dockerfile).
 networkx==3.6.1
+numpy==2.3.5
+# optional: only used with --vlm (local Ollama server)
 ollama==0.6.2
+opencv-contrib-python==4.10.0.84
 paddleocr==3.7.0
 paddlepaddle==3.2.0
 pillow==12.3.0
 pydantic==2.13.4
 PyYAML==6.0.2
 shapely==2.1.2
+pytest==9.1.1
+# scripts/ class refiner tools
+scikit-learn==1.9.1
+pandas==3.0.5
+joblib==1.6.0
+matplotlib==3.11.2

@@ -67,7 +67,7 @@ ordered by frequency in real QA tickets.
 
 Create summary + detailed findings + visual overlay.
 
-**Expected end result** for one Production/Client pair:
+**Expected end result** for one production/client pair:
 - summary counts (matched / missing / extra / text / position /
   size / order / uncertain)
 - detailed findings, each with type, both bboxes, confidence (e.g.

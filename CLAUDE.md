@@ -1,6 +1,6 @@
 # UI Comparison
 
-Compares a Production screenshot of an OTT app screen with the Client design screenshot and reports
+Compares a production screenshot of an OTT app screen with the client design screenshot and reports
 layout differences with PASS / REVIEW / FAIL verdicts (docs/test_cases_pass_fail.md is the spec).
 Pipeline: YOLO detector + PaddleOCR -> fusion -> layout graph -> matcher/differ -> report.
 README.md has the stage map; docs/architecture.md and docs/design.md the details.
@@ -14,6 +14,10 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - Keep this project separate from the old SunNXT annotation/GT audit work.
 
 ## Running
+Commands assume the project's `.venv` Python (`.venv\Scripts\python.exe`, Ubuntu `.venv/bin/python`).
+- First time (needs internet, ~10-20 min, safe to re-run): `setup.bat` / `bash setup.sh` (creates .venv + .venv-detector, runs the doctor)
+- Doctor (PASS / FIX / INFO per check, exit 0 = ready): `python -m scripts.check_setup`
+- Smoke test (seconds, no OCR/detector; real pair FAIL 16 findings, self-compare PASS 0): `python -m scripts.smoke_test`
 - One screen, stage by stage: `python -m scripts.run_detector|run_ocr|run_fusion <image>`
 - Layout graph from a saved fusion JSON (no 90 s rerun): `python -m scripts.build_graph_from_fusion <json> --layout`
 - Compare a pair (writes the HTML report): `python -m scripts.run_comparison <production> <client>`
@@ -28,12 +32,17 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
 - Accept a finding: `python -m scripts.accept_finding <report.json> --finding N --note "..."`
 - Ticket CSV: `python -m scripts.export_tickets <report.json>`
 - Full pipeline CLI: `python -m src.main --production-image ... --production-screen-id ... --client-image ... --client-screen-id ...`
-- Unit tests: `python -m pytest tests -q`
+- Unit tests: `python -m pytest tests -q` (15 known legacy failures: tests/test_fusion.py, tests/test_graph.py)
+- Handover zip: `python -m scripts.make_release [--out <folder>]` (default: next to the project)
 - Script output is numbered testN_* under output/<stage>/; never overwrite earlier runs.
 
 ## Environment traps
-- The YOLO detector runs in a separate Python (ultralytics must never share a venv with paddlepaddle):
-  env var UI_DETECTOR_PYTHON, else python_path in config/detector.yaml.
+- The YOLO detector runs in a separate Python (ultralytics must never share a venv with paddlepaddle).
+  Lookup (src/detector/engine.detector_python): env var UI_DETECTOR_PYTHON -> <root>/.venv-detector
+  -> python_path in config/detector.yaml (blank by default). Never pip install torch/ultralytics into .venv.
+- OCR models are bundled in models/paddlex; src/ocr/engine.py sets PADDLE_PDX_CACHE_HOME to it. Never let OCR download models.
+- Changing config/detector.yaml or the ocr / fusion / vlm sections of config/config.yaml changes the baseline
+  config hash: baselines go stale -> re-add them with scripts.add_baseline.
 - OCR takes ~45 s per screen on CPU; the benchmark ~1 min per case. Ask before starting long runs.
 - The Windows console is cp1252; scripts import scripts/_test_utils.py to force UTF-8 (OCR returns Tamil/CJK).
 - input/ and output/ are gitignored; screenshots never go in git.
@@ -49,6 +58,11 @@ README.md has the stage map; docs/architecture.md and docs/design.md the details
   history.py (new/fixed/still open), html_report.py, visualize.py
 - src/baselines.py: stored client designs; src/app/: the web app package (server, jobs, actions, library, static/)
 - docs/memory.md: project history and benchmark results
+- Docs map: docs/HANDOVER.md (manager summary), docs/HOW_TO_SETUP.md (install), docs/USER_GUIDE.md (testers),
+  docs/CONTINUING_THE_PROJECT.md (developers), docs/CHANGELOG.md, output/INDEX.md (which runs matter)
+- scripts/check_setup.py: the doctor; scripts/smoke_test.py: the seconds-long end-to-end check
+- models/: ui16_v1/ (best.pt + model_card.json, classes_16.txt, gt_detections.json), paddlex/official_models/
+  PP-OCRv6_medium_{det,rec}; checksums in models/SHA256SUMS.txt (checked by the doctor)
 - docs/migration_ubuntu_gpu.md: plan for moving to the Ubuntu GTX 1070 box in the sandboxed Docker setup (not done yet)
 
 ## How to work with me

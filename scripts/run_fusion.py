@@ -2,8 +2,8 @@
 
     python -m scripts.run_fusion
 
-The detector's separate interpreter comes from config/detector.yaml's
-python_path; set UI_DETECTOR_PYTHON to override it on another machine.
+The detector's separate interpreter: UI_DETECTOR_PYTHON if set, else <root>/.venv-detector
+(made by setup.bat / setup.sh), else python_path in config/detector.yaml.
 """
 import sys
 from collections import Counter

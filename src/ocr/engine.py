@@ -8,10 +8,21 @@ mirrors the vlm.analyze() abstraction in architecture.md §5.
 
 from pathlib import Path
 from dataclasses import dataclass, field
+import os
 import time
 import json
 
 from PIL import Image
+
+# Bundled OCR weights (models/paddlex/official_models/PP-OCRv6_medium_det|rec,
+# the lang="en" defaults): point PaddleX at them so nothing is downloaded.
+# paddlex/utils/cache.py reads PADDLE_PDX_CACHE_HOME once, at import, so this
+# must run before the paddleocr import. An env var already set wins.
+_BUNDLED_MODELS = Path(__file__).resolve().parents[2] / "models" / "paddlex"
+if (_BUNDLED_MODELS / "official_models").is_dir():
+    os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(_BUNDLED_MODELS))
+    os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
 from paddleocr import PaddleOCR
 
 

@@ -53,18 +53,18 @@ def _checks(config_dir: Path):
 
     det = det or {}
     if det.get("engine") == "yolo":
+        from src.detector.engine import SETUP_HINT, detector_python  # same lookup as load_detector
         var = det.get("python_env_var", "UI_DETECTOR_PYTHON")
-        # Same order as src/detector/engine.load_detector: env var, then python_path.
-        python = os.environ.get(var) or det.get("python_path")
+        python, source = detector_python(det, root)
         out.append(_check("Detector Python", python and Path(python).is_file(),
-                          f"{python}" if python else "not set",
-                          f"set {var} (in .env next to 'UI Compare.bat', or the shell) to the "
-                          f"UI_Detection_model_training venv's python, or fix python_path in "
+                          f"{python} (from {source})" if python else "not set",
+                          f"{SETUP_HINT}, or set {var} (in .env next to 'UI Compare.bat', or the "
+                          f"shell) to a Python that has ultralytics, or fix python_path in "
                           f"config/detector.yaml"))
         bundle = Path(det.get("bundle", ""))
         weights = (bundle if bundle.is_absolute() else root / bundle) / "best.pt"
         out.append(_check("Detector weights", weights.is_file(), str(weights),
-                          "copy best.pt from UI_Detection_model_training/models/ (not in git)"))
+                          "restore models/ from the handover zip (best.pt is not in git; checksums in models/SHA256SUMS.txt)"))
     else:
         out.append(_check("Detector", True, f"engine {det.get('engine')!r}: no YOLO Python needed"))
 

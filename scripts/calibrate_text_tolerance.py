@@ -15,7 +15,7 @@ dynamic content (poster titles over artwork), because only the static classes
 are text-compared at all under E1/§H — and stylised text on posters is expected
 to OCR far worse without that mattering.
 
-Run:  python -m scripts.calibrate_text_tolerance
+Run:  python -m scripts.calibrate_text_tolerance --metadata <SunNXT-UI-Metadata folder>
 """
 import collections
 import json
@@ -27,9 +27,6 @@ from pathlib import Path
 from src.comparison.matcher import _normalize_text
 from src.ocr.engine import OCRElement, OCREngine
 
-METADATA = Path(r"C:\Users\pralhadraj.joshi\Documents\SunNXT-UI-Metadata")
-XML_DIR = METADATA / "apk_analysis" / "window_xml"
-IMAGE_DIR = METADATA / "dataset" / "renamed" / "images"
 CACHE_DIR = Path("output/ocr/calibration")
 
 # resource-ids whose text is fixed app chrome, i.e. the E1 static classes.
@@ -83,16 +80,21 @@ def best_ocr_match(node_box, ocr_elements):
     return best
 
 
-def main():
+def main(metadata: Path):
+    # metadata: the SunNXT-UI-Metadata checkout (apk_analysis/, dataset/).
+    xml_dir = metadata / "apk_analysis" / "window_xml"
+    image_dir = metadata / "dataset" / "renamed" / "images"
+    if not xml_dir.is_dir():
+        raise SystemExit(f"{xml_dir} not found - pass --metadata <SunNXT-UI-Metadata folder>")
     # App strings contain ₹ and Tamil script; the Windows console is cp1252.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     engine = OCREngine(lang="en")
     rows = []
 
-    for xml_path in sorted(XML_DIR.glob("*_window.xml")):
+    for xml_path in sorted(xml_dir.glob("*_window.xml")):
         screen = xml_path.name.replace("_window.xml", "")
-        image = IMAGE_DIR / f"{screen}.png"
+        image = image_dir / f"{screen}.png"
         if not image.exists():
             print(f"  ! {screen}: no screenshot, skipped")
             continue
@@ -199,5 +201,14 @@ def _self_check():
 
 
 if __name__ == "__main__":
-    import sys
-    _self_check() if "--check" in sys.argv else main()
+    import argparse
+    ap = argparse.ArgumentParser(description="Measure PaddleOCR drift against uiautomator XML strings.")
+    ap.add_argument("--metadata", type=Path, help="SunNXT-UI-Metadata folder (apk_analysis/, dataset/)")
+    ap.add_argument("--check", action="store_true", help="run the self-check only (no OCR)")
+    args = ap.parse_args()
+    if args.check:
+        _self_check()
+    elif not args.metadata:
+        ap.error("--metadata <SunNXT-UI-Metadata folder> is required")
+    else:
+        main(args.metadata)

@@ -31,10 +31,6 @@ RUN pip install --upgrade pip && \
         -i https://www.paddlepaddle.org.cn/packages/stable/cu126/ && \
     rm /tmp/requirements.txt
 
-# Dev tooling. requirements.txt has no pytest even though tests/ exists — it was
-# installed ad hoc in the Windows venv. Pinned here so `pytest` works in-container.
-RUN pip install pytest==8.3.4
-
 # HOME for the runtime user. PaddleOCR downloads its detection/recognition models
 # to ~/.paddlex on first run; huggingface_hub and matplotlib also write under HOME.
 # Pre-created and chowned so a named volume mounted here inherits the ownership and

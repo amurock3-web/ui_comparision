@@ -2,13 +2,13 @@
   "screen_id": "ss096",
   "device": "phone",
   "language": "default",
-  "created": "2026-11-18T10:56:01",
-  "source_file": "C:\\Users\\pralhadraj.joshi\\Documents\\ui_comparison\\output\\app\\_uploads\\20261118_105416_348363_ss096.png",
+  "created": "2026-11-20T03:05:42",
+  "source_file": "ss096.png",
   "image_size": [
     1080,
     2400
   ],
-  "config_hash": "39f5485eafac106e027a242ecb5e9cea7cc794760c23eaad173da82fdd221d66",
+  "config_hash": "fd8df9ed3a1fcfcd3281b729337025dd631941013fd6b3ad81eb8520899e7bc9",
   "detector": {
     "engine": "yolo",
     "bundle": "models/ui16_v1",

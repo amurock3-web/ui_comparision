@@ -44,7 +44,7 @@ Never switch to a cloud VLM without explicit permission (`rules.md` §2).
 Two environments have been documented for this project at different points; they are **not**
 the same checkout and this file does not assert one has replaced the other:
 
-- **Windows, local** — `C:\Users\pralhadraj.joshi\Documents\ui_comparison`. This is the checkout
+- **Windows, local** — `<home>\Documents\ui_comparison`. This is the checkout
   actually being worked in as of 2026-09-04 (confirmed: git commits and the active dev session
   both run here, on CPU, no CUDA).
 - **Docker / Linux / GPU (`ui_compare_v2`)** — set up earlier for GPU-accelerated OCR/VLM
@@ -1247,3 +1247,57 @@ scale, the real-pair 3x3 verdict matrix, and the summary table. Inline SVG, no J
 dark; palette = the dataviz default (validated light + dark, all-pairs for 3 slots). Numbers are the
 same as evaluation.md. Pooled run with the HTML: `output/evaluation/test3_evaluation/`. One new test
 (8 in tests/test_evaluate.py, all pass); the rest of the suite was not re-run for this change.
+
+## 2026-11-20: Handover packaging
+
+Packaging for the handover zip, on branch `handover-package`. No detection, matching, check or
+verdict logic changed; the code changes are setup, paths and model lookup only.
+
+- `requirements.txt` (main env, Python 3.11) is now fully pinned and adds the missing `numpy`,
+  `opencv-contrib-python` and `pytest`. New `requirements-detector.txt` for the detector env
+  (ultralytics 8.4.146, torch 2.14.0 CPU, torchvision 0.29.0, opencv-python 5.0.0.93; GPU torch: see
+  its comment, cu126 index). The two envs never share a venv.
+- `setup.bat` / `bash setup.sh`: check Python 3.11, create `.venv` and `.venv-detector` at the project
+  root, install both requirement sets, run the doctor. Safe to re-run; needs internet the first time.
+- `scripts/check_setup.py` (doctor): one PASS / FIX / INFO line per check (Python, imports, no
+  torch/ultralytics in `.venv`, detector Python, model checksums, configs, OCR uses bundled models,
+  port, Ollama, GPU, Edge, real benchmark pair, output/ writable). Exit 0 = ready.
+- `scripts/smoke_test.py`: seconds, no detector or OCR. Real pair `input/benchmark/real/trending_search`
+  from its cached fused JSONs (production vs client) plus a client self-compare. Output in
+  `output/smoke/testN_smoke/`.
+- Launchers (`UI Compare.bat`, `start.sh`) say "run setup first" when `.venv` or `.venv-detector` is missing.
+- Detector Python lookup (`src/detector/engine.detector_python`, shared with `src/health.py`):
+  `UI_DETECTOR_PYTHON` -> `<root>/.venv-detector` -> `python_path` in `config/detector.yaml`, which is
+  now blank (it held the author's laptop path).
+- Blanking `python_path` changed the config hash, so baseline ss096 was re-added (35 elements, 53 s).
+  `baselines/*/meta.json` now stores the upload's file name only, not its full local path.
+- PaddleX OCR models bundled in `models/paddlex/official_models/PP-OCRv6_medium_{det,rec}`;
+  `src/ocr/engine.py` sets `PADDLE_PDX_CACHE_HOME` to `models/paddlex`, so OCR never downloads.
+  `models/SHA256SUMS.txt` holds checksums for these and for `models/ui16_v1/`.
+- `config/class_refiner.yaml` now points at `../UI_Detection_model_training` (relative; only the
+  refiner scripts need it). `scripts/calibrate_text_tolerance.py` takes `--metadata <folder>`
+  instead of a hard-coded path.
+- `.gitattributes`: `*.sh` LF (bash on Ubuntu), `*.bat` CRLF.
+- Docs: new `docs/HOW_TO_SETUP.md`, `docs/USER_GUIDE.md`, `docs/CONTINUING_THE_PROJECT.md`,
+  `docs/CHANGELOG.md`, `output/INDEX.md`; README, CLAUDE.md and `docs/HANDOVER.md` updated.
+
+**Results 2026-11-20** (author's laptop):
+
+- Doctor: all PASS except one FIX: an unused `torch` is still installed in the laptop's `.venv`
+  (left over from earlier work). Venvs are not shipped; setup builds a clean one.
+- Smoke test: `SMOKE TEST: PASS` in 6.8 s. Real pair FAIL, 16 findings (manifest expects REVIEW: the
+  known gap from test24, reported as INFO); self-compare PASS, 0 findings.
+- pytest, full suite: 343 passed, 15 failed, 1 skipped. The 15 failing names are the same as at
+  `a817330` (diffed); they are listed with reasons in `docs/HANDOVER.md` §8 "Known failing tests".
+  No benchmark, detector or OCR ran apart from re-adding the ss096 baseline.
+- `scripts/make_release.py` builds the zip (one top folder `ui_comparison/`, `MANIFEST.txt`). It leaves out
+  venvs, caches, `.claude/worktrees`, `.claude/settings*.json`, the PaddleX runtime folders and the graphify
+  extras (dated snapshots, `cache/`, `cost.json`, `.graphify_python`).
+
+Notes on earlier entries (not rewritten):
+
+- The Phase 20 entry (2026-11-19) names `output/evaluation/test2_evaluation` as the pooled output.
+  The current pooled run is `output/evaluation/test3_evaluation/`: same numbers, plus
+  `evaluation.html`. test1 and test2 have no HTML.
+- The Phase 14, 15 and 17 entries say their `phase*_prompts.md` plan is "outside the repo". All five
+  prompt files (phase12, 14, 14b, 15, 17) are now in `docs/` and tracked in git.

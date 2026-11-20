@@ -290,8 +290,8 @@ A card gets `metadata.rank = N` when:
 
 Caveats: stylized outlined rank digits may be misread by OCR;
 localized or differently-worded row titles ("Top Picks") → the
-sequential-number condition covers these. A rank present in Production
-but missing in Client is reported (attribute difference), so the
+sequential-number condition covers these. A rank present in production
+but missing in client is reported (attribute difference), so the
 information is not lost by dropping the class.
 
 ## 21. Color detection design (built, Phase 13-15)

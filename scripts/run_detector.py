@@ -1,7 +1,10 @@
 """Detector only (no OCR, no VLM): detect one screenshot, save JSON + boxes drawn on the image.
 
-    $env:UI_DETECTOR_PYTHON = "C:\\Users\\pralhadraj.joshi\\UI_Detection_model_training\\.venv\\Scripts\\python.exe"
     python -m scripts.run_detector [image_path]
+
+The detector's separate interpreter: UI_DETECTOR_PYTHON if set, else <root>/.venv-detector
+(made by setup.bat / setup.sh), else python_path in config/detector.yaml. Optional override:
+    $env:UI_DETECTOR_PYTHON = "<UI_Detection_model_training>\\.venv\\Scripts\\python.exe"
 """
 import sys
 from collections import Counter

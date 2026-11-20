@@ -1,4 +1,4 @@
-# UI Comparison — Pass / Fail Test Cases (v1)
+# UI Comparison — PASS / REVIEW / FAIL test cases (v1)
 
 Written from the view of a QA / UI tester at a large OTT company.
 Status: **v1: confirmed 2026-11-02 by Pralhadraj + Claude, manager review pending**.

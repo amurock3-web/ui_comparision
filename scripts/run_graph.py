@@ -3,8 +3,8 @@ YOLO detector + OCR -> fuse_detections (no VLM) -> UIGraphBuilder.
 
     python -m scripts.run_graph [image.png]
 
-The detector's separate interpreter comes from UI_DETECTOR_PYTHON
-(see config/detector.yaml and environment.md §9).
+The detector's separate interpreter: UI_DETECTOR_PYTHON if set, else <root>/.venv-detector
+(made by setup.bat / setup.sh), else python_path in config/detector.yaml.
 """
 import sys
 from collections import Counter

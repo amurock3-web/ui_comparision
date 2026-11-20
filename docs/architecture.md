@@ -1,7 +1,7 @@
 System Architecture --- UI Comparison
 1. Goal
 
-Compare Production and Client OTT screenshots locally using a fine-tuned UI detector, OCR, a VLM fallback, structured JSON, graphs and deterministic comparison.
+Compare production and client OTT screenshots locally using a fine-tuned UI detector, OCR, a VLM fallback, structured JSON, graphs and deterministic comparison.
 
 2. High-level flow
 text
@@ -30,7 +30,7 @@ Production side    Client side
                   Report
 3. Input layer
 
-Loads local screenshots, validates image dimensions and creates Production/Client pairs.
+Loads local screenshots, validates image dimensions and creates production/client pairs.
 
 3a. Detector
 
@@ -356,7 +356,7 @@ comparison engine compares. Details: design.md §21-22.
 
 ## 20. Generalization to new clients / other OTT apps
 
-The system compares Production vs Client of the **same app**, so it
+The system compares production vs client of the **same app**, so it
 does not need to "know" the app — it needs to detect generic components
 **consistently on both sides**. Consistent detector errors on both
 sides largely cancel out in a relative comparison.

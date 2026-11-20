@@ -1,0 +1,10 @@
+# Detector env (.venv-detector), Python 3.11. Runs src/detector/yolo_worker.py as a
+# subprocess. NEVER install this into the paddle venv (.venv).
+# On Linux, setup.sh installs torch from the CPU index:
+#   pip install -r requirements-detector.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# NVIDIA GPU (CUDA 12.6) users then reinstall torch from the cu126 index:
+#   .venv-detector/bin/python -m pip install --force-reinstall torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cu126
+ultralytics==8.4.146
+torch==2.14.0
+torchvision==0.29.0
+opencv-python==5.0.0.93

@@ -1,4 +1,5 @@
 .venv/
+.venv-detector/
 __pycache__/
 *.pyc
 
@@ -12,6 +13,9 @@ input/
 
 # Detector weights - copied by hand from UI_Detection_model_training, never committed
 *.pt
+# Bundled OCR models: shipped in the handover zip only
+models/paddlex/
+ui_comparison_handover_*.zip
 
 .pytest_cache/
 graphify-out/
@@ -22,3 +26,6 @@ baselines/**/client.*
 
 # Client-derived OCR text and boxes: local only (handover 2026-11-18)
 baselines/**/client_fused.json
+
+# Doc screenshots show client screens: shipped in the handover zip only, never in git
+docs/images/

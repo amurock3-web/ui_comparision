@@ -35,6 +35,26 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = ROOT / "config" / "detector.yaml"
 CLASSES_PATH = ROOT / "config" / "classes.json"
 WORKER = Path(__file__).resolve().parent / "yolo_worker.py"
+SETUP_HINT = "run setup.bat / setup.sh to create .venv-detector"
+
+
+def detector_python(cfg: dict, root: Path = ROOT) -> tuple[str | None, str]:
+    """The YOLO interpreter and where it came from ("env", ".venv-detector", "config").
+
+    Order: the environment variable named by python_env_var (lets a box point at
+    its own interpreter without editing config), then <root>/.venv-detector made
+    by setup.bat / setup.sh, then python_path in config/detector.yaml.
+    Returns (None, "") when none is set. load_detector and src/health.py share it.
+    """
+    env = os.environ.get(cfg.get("python_env_var") or "UI_DETECTOR_PYTHON")
+    if env:
+        return env, "env"
+    venv = root / ".venv-detector" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if venv.is_file():
+        return str(venv), ".venv-detector"
+    if cfg.get("python_path"):
+        return str(cfg["python_path"]), "config"
+    return None, ""
 
 
 class Bundle:
@@ -118,8 +138,8 @@ class YOLODetector(_Detector):
     def __init__(self, bundle, python, **tiers):
         super().__init__(bundle, **tiers)
         if not (bundle.path / "best.pt").is_file():
-            raise FileNotFoundError(f"{bundle.path / 'best.pt'} missing - weights are not in git, "
-                                    f"copy them from UI_Detection_model_training/models/")
+            raise FileNotFoundError(f"{bundle.path / 'best.pt'} missing - weights are not in git; "
+                                    f"restore models/ from the handover zip")
         self.python = python
 
     def detect(self, image_path) -> list[UIElement]:
@@ -144,17 +164,14 @@ def load_detector(config_path=DEFAULT_CONFIG_PATH):
     if cfg["engine"] == "gt_stub":
         return GTStubDetector(bundle, **tiers)
     if cfg["engine"] == "yolo":
-        # The environment variable wins, so the Linux/GPU box can point at its
-        # own interpreter without editing config; python_path is the checked-in
-        # fallback that lets the scripts run with no shell setup.
-        python = os.environ.get(cfg["python_env_var"]) or cfg.get("python_path")
+        python, source = detector_python(cfg)
         if not python:
-            raise RuntimeError(f"set {cfg['python_env_var']} to a Python that has ultralytics "
-                               f"(not this paddle environment), or give python_path in "
-                               f"config/detector.yaml")
+            raise RuntimeError(f"no detector Python: {SETUP_HINT}, or set {cfg['python_env_var']} "
+                               f"to a Python that has ultralytics (not this paddle environment), "
+                               f"or give python_path in config/detector.yaml")
         if not Path(python).is_file():
-            raise FileNotFoundError(f"detector Python {python!r} does not exist - set "
-                                    f"{cfg['python_env_var']} or fix python_path in "
-                                    f"config/detector.yaml")
+            raise FileNotFoundError(f"detector Python {python!r} (from {source}) does not exist - "
+                                    f"{SETUP_HINT}, or set {cfg['python_env_var']} or fix "
+                                    f"python_path in config/detector.yaml")
         return YOLODetector(bundle, python, **tiers)
     raise ValueError(f"config/detector.yaml: unknown engine {cfg['engine']!r} (gt_stub or yolo)")

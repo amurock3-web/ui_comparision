@@ -1,5 +1,23 @@
 # Move UI Comparison: Windows laptop → Ubuntu GPU machine, in a sandbox
 
+> **Status 2026-11-20: still a plan, not done.** Nothing below has been run on the Ubuntu box.
+> Changed since it was written (handover packaging, see [`HOW_TO_SETUP.md`](HOW_TO_SETUP.md)):
+>
+> - Requirements are pinned: `requirements.txt` (main env) and `requirements-detector.txt`
+>   (ultralytics + torch, own venv; see its comment for GPU torch from the cu126 index).
+> - `setup.sh` (Ubuntu, bare metal) builds `.venv` and `.venv-detector`. The detector Python is
+>   found automatically (`UI_DETECTOR_PYTHON`, then `.venv-detector`, then `python_path` in
+>   `config/detector.yaml`, now blank), so the "Windows `python_path`" leftover is gone.
+> - The OCR models are bundled in `models/paddlex/` and the YOLO weights in `models/ui16_v1/`;
+>   OCR no longer downloads models, so "downloads OCR models once" in Step 4 is stale.
+> - `.gitattributes` keeps `*.sh` LF and `*.bat` CRLF (only those two; Dockerfile, `*.yml`, `*.py`
+>   are not covered yet).
+>
+> Still stale in the plan: `src.app` has no `--host` flag yet (only `--port` and `--no-browser`),
+> so the Step 4 command `python -m src.app --host 0.0.0.0` does not work until item 2 of Step 1
+> is done. Step 5 compares against **test3**; the current benchmark baselines are test22 / test23 /
+> test24 ([`HANDOVER.md`](HANDOVER.md#2-current-state-checked-against-src-on-2026-11-18)).
+
 ## What already exists (good news)
 
 The repo already has a sandboxed Docker setup (`Dockerfile` + `docker-compose.yml`):

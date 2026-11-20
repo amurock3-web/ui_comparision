@@ -3,7 +3,7 @@
     python -m scripts.compare_yolo_vs_refiner [--model logreg|lightgbm]
 
 Needs features.csv (scripts.build_refiner_dataset) and ultralytics in the detector Python
-(UI_DETECTOR_PYTHON or python_path in config/detector.yaml).
+(UI_DETECTOR_PYTHON, else <root>/.venv-detector, else python_path in config/detector.yaml).
 
 - Only YOLO's val split (paths.yolo_val_images_dir): YOLO never trained on these.
 - The refiner is retrained here WITHOUT those images.
